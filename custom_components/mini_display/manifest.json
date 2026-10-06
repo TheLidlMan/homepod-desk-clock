@@ -1,0 +1,15 @@
+{
+  "domain": "mini_display",
+  "name": "Home Assistant Mini-Display",
+  "after_dependencies": ["weather", "recorder"],
+  "codeowners": ["@piotrkochan"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "lovelace", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/piotrkochan/homeassistant-minidisplay",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/piotrkochan/homeassistant-minidisplay/issues",
+  "requirements": [],
+  "version": "0.1.1",
+  "zeroconf": ["_mini-display._tcp.local."]
+}

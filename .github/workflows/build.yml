@@ -1,0 +1,21 @@
+name: SD PRO build and host tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python3 -m venv .venv && .venv/bin/pip install -r requirements-build.txt
+      - run: npm --prefix firmware/web ci
+      - run: cp firmware/src/ClockConfig.example.h firmware/src/ClockConfig.h
+      - run: PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.1
+      - run: PATH="$PWD/.venv/bin:$PATH" make test-native
+      - run: python3 scripts/test_install_dashboard.py

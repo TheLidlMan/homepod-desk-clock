@@ -1,0 +1,6 @@
+{
+  "services": {
+    "notify": {"service": "mdi:message-badge-outline"},
+    "dismiss_notifications": {"service": "mdi:message-off-outline"}
+  }
+}

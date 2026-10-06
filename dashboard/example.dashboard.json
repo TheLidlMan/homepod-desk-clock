@@ -1,0 +1,96 @@
+{
+  "$schema": "./dashboard.schema.json",
+  "version": 1,
+  "defaults": {
+    "pageDurationSeconds": 10,
+    "showRowTitle": true,
+    "theme": "dark"
+  },
+  "pages": [
+    {
+      "id": "overview",
+      "title": "Dom",
+      "durationSeconds": 12,
+      "rows": [
+        {
+          "showTitle": false,
+          "weight": 2,
+          "cards": [
+            {
+              "type": "clock",
+              "id": "main_clock",
+              "format": "24h",
+              "showDate": true,
+              "style": { "background": "#14213D", "foreground": "#FFFFFF", "radius": "medium" },
+              "valueStyle": { "fontFamily": "default", "fontSize": "xlarge" }
+            }
+          ]
+        },
+        {
+          "title": "Temperatury",
+          "cards": [
+            {
+              "type": "number",
+              "title": "Salon",
+              "source": "sensor.living_room_temperature",
+              "unit": "°C",
+              "minimum": 10,
+              "maximum": 30,
+              "showMinimum": true,
+              "showMaximum": true,
+              "progress": "bar",
+              "style": { "background": "surface", "accent": "warning" },
+              "titleStyle": { "fontFamily": "default", "fontSize": "small" },
+              "valueStyle": { "fontFamily": "default", "fontSize": "large" }
+            },
+            {
+              "type": "number",
+              "title": "Sypialnia",
+              "source": "sensor.bedroom_temperature",
+              "unit": "°C",
+              "progress": "none",
+              "style": { "background": "surface" }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "energy",
+      "title": "Energia",
+      "durationSeconds": 8,
+      "rows": [
+        {
+          "title": "Teraz",
+          "cards": [
+            {
+              "type": "number",
+              "title": "Pobór",
+              "source": "sensor.home_power",
+              "unit": "W",
+              "minimum": 0,
+              "maximum": 3000,
+              "progress": "bar"
+            },
+            {
+              "type": "status",
+              "title": "Taryfa",
+              "source": "binary_sensor.cheap_energy",
+              "onText": "Tania",
+              "offText": "Droga",
+              "onColor": "success",
+              "offColor": "warning"
+            },
+            {
+              "type": "text",
+              "title": "Prognoza",
+              "source": "sensor.energy_forecast",
+              "align": "center",
+              "maxLines": 2
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

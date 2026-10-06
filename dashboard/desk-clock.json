@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "defaults": {
+    "showRowTitle": false,
+    "theme": "dark"
+  },
+  "pages": [
+    {
+      "id": "clock",
+      "layout": "free",
+      "showTitle": false,
+      "style": {
+        "background": "#151b18"
+      },
+      "rows": [
+        {
+          "showTitle": false,
+          "cards": [
+            {
+              "type": "text",
+              "id": "date",
+              "source": "date",
+              "showTitle": false,
+              "frame": {
+                "x": 5,
+                "y": 5,
+                "width": 90,
+                "height": 7
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#a7b6ac",
+                "marquee": false,
+                "horizontalAlign": "left",
+                "fontFamily": "font2"
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "clock",
+              "id": "time",
+              "format": "24h",
+              "showDate": false,
+              "showTitle": false,
+              "frame": {
+                "x": 3,
+                "y": 14,
+                "width": 94,
+                "height": 42
+              },
+              "backgroundMode": "transparent",
+              "valueStyle": {
+                "fontFamily": "font1",
+                "fontSize": "xlarge",
+                "foreground": "#eef4ed"
+              }
+            },
+            {
+              "type": "text",
+              "id": "temperature",
+              "source": "temperature",
+              "showTitle": false,
+              "frame": {
+                "x": 5,
+                "y": 57,
+                "width": 31,
+                "height": 18
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#eef4ed",
+                "marquee": false,
+                "horizontalAlign": "left",
+                "fontFamily": "font2"
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "text",
+              "id": "range",
+              "source": "range",
+              "showTitle": false,
+              "frame": {
+                "x": 38,
+                "y": 60,
+                "width": 57,
+                "height": 9
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#a7b6ac",
+                "marquee": false,
+                "horizontalAlign": "left",
+                "fontFamily": "font2"
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "text",
+              "id": "rain",
+              "source": "rain",
+              "showTitle": false,
+              "frame": {
+                "x": 5,
+                "y": 82,
+                "width": 90,
+                "height": 9
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#a4dbc0",
+                "marquee": false,
+                "horizontalAlign": "left",
+                "fontFamily": "font2"
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "image",
+              "id": "divider",
+              "image": "0000000000000002",
+              "imageFit": "contain",
+              "showTitle": false,
+              "frame": {
+                "x": 7.5,
+                "y": 75.8,
+                "width": 85,
+                "height": 2
+              },
+              "backgroundMode": "transparent"
+            }
+          ]
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "speed": "normal",
+        "intensity": "strong"
+      }
+    },
+    {
+      "id": "music",
+      "layout": "free",
+      "showTitle": false,
+      "style": {
+        "background": "#151b18"
+      },
+      "rows": [
+        {
+          "showTitle": false,
+          "cards": [
+            {
+              "type": "text",
+              "id": "header",
+              "source": "music_header",
+              "showTitle": false,
+              "frame": {
+                "x": 5,
+                "y": 4,
+                "width": 60,
+                "height": 6
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#a7b6ac",
+                "marquee": false,
+                "horizontalAlign": "left",
+                "fontFamily": "font2"
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "clock",
+              "id": "small_time",
+              "format": "24h",
+              "showDate": false,
+              "showTitle": false,
+              "frame": {
+                "x": 69,
+                "y": 4,
+                "width": 27,
+                "height": 6
+              },
+              "backgroundMode": "transparent",
+              "valueStyle": {
+                "fontSize": "small",
+                "foreground": "#a7b6ac",
+                "fontFamily": "font2"
+              }
+            },
+            {
+              "type": "text",
+              "id": "title",
+              "source": "music_title",
+              "showTitle": false,
+              "frame": {
+                "x": 6.7,
+                "y": 70,
+                "width": 86.6,
+                "height": 8
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#eef4ed",
+                "marquee": true,
+                "horizontalAlign": "left",
+                "fontFamily": "font2",
+                "marqueeIntervalMs": 50,
+                "marqueeStepPixels": 1
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "text",
+              "id": "artist",
+              "source": "music_artist",
+              "showTitle": false,
+              "frame": {
+                "x": 6.7,
+                "y": 81,
+                "width": 86.6,
+                "height": 6
+              },
+              "wrap": false,
+              "maxLines": 1,
+              "style": {
+                "foreground": "#a7b6ac",
+                "marquee": true,
+                "horizontalAlign": "left",
+                "fontFamily": "font2",
+                "marqueeIntervalMs": 50,
+                "marqueeStepPixels": 1
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "image",
+              "id": "artwork",
+              "image": "0000000000000001",
+              "imageFit": "cover",
+              "showTitle": false,
+              "frame": {
+                "x": 25.4,
+                "y": 16.7,
+                "width": 49.2,
+                "height": 49.2
+              },
+              "backgroundMode": "transparent"
+            },
+            {
+              "type": "number",
+              "id": "progress",
+              "source": "music_progress",
+              "showTitle": false,
+              "minimum": 0,
+              "maximum": 100,
+              "progress": "bar",
+              "frame": {
+                "x": 4.6,
+                "y": 88,
+                "width": 90.8,
+                "height": 8
+              },
+              "backgroundMode": "transparent",
+              "style": {
+                "foreground": "#151b18",
+                "accent": "#a4dbc0"
+              },
+              "showCurrent": false,
+              "valueMappings": [
+                {
+                  "minimum": 0,
+                  "maximum": 100,
+                  "value": " "
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "transition": {
+        "type": "fade",
+        "speed": "normal",
+        "intensity": "strong"
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "entity": {
+    "select": {
+      "notification_position": {
+        "name": "Notification position",
+        "state": {"top": "Top", "bottom": "Bottom", "left": "Left", "right": "Right", "top_left": "Top left", "top_right": "Top right", "bottom_left": "Bottom left", "bottom_right": "Bottom right"}
+      }
+    }
+  },
+  "services": {
+    "notify": {
+      "name": "Show notification",
+      "description": "Show a temporary message above the dashboard without changing its scene",
+      "fields": {
+        "device_id": {"name": "Display", "description": "Mini-Display that should show the message"},
+        "title": {"name": "Title", "description": "Optional heading up to 96 UTF-8 bytes"},
+        "message": {"name": "Message", "description": "Text up to 384 UTF-8 bytes. Provide a title or message"},
+        "icon": {"name": "Icon", "description": "Auto chooses an icon matching severity"},
+        "severity": {"name": "Severity", "description": "Controls the accent color and default icon"},
+        "duration": {"name": "Duration", "description": "Seconds visible before dismissal"},
+        "position": {"name": "Position", "description": "Leave empty for the display default. Small screens support top and bottom"}
+      }
+    },
+    "dismiss_notifications": {
+      "name": "Dismiss notifications",
+      "description": "Remove all visible and waiting notifications from one display",
+      "fields": {"device_id": {"name": "Display", "description": "Mini-Display whose notifications should be dismissed"}}
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect a Mini-Display",
+        "description": "Enter the local address and optional panel/API password configured on the display.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "use_ssl": "Use HTTPS",
+          "verify_ssl": "Verify TLS certificate",
+          "api_token": "Panel/API password (optional)"
+        },
+        "data_description": {
+          "verify_ssl": "Disable only for a self-signed certificate that you trust."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update Mini-Display password",
+        "description": "Enter the current panel/API password for {name}, or leave it empty when API protection is disabled.",
+        "data": {
+          "api_token": "Panel/API password (optional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Connection settings",
+        "description": "Choose how Home Assistant connects to {name}. The integration tests this transport before saving it.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "use_ssl": "Use HTTPS",
+          "verify_ssl": "Verify TLS certificate"
+        },
+        "data_description": {
+          "verify_ssl": "Disable only for a self-signed certificate that you trust."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the display",
+      "invalid_auth": "Invalid device password",
+      "unsupported_device": "Unsupported device or API version"
+    },
+    "abort": {
+      "already_configured": "This display is already configured",
+      "invalid_discovery_info": "Discovery did not contain a stable device ID",
+      "wrong_device": "The password belongs to a different display",
+      "reconfigure_successful": "Connection settings updated"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Mini-Display update settings",
+        "description": "Control how often changed Home Assistant entities are sent to this display.",
+        "data": {
+          "data_batch_interval": "Entity update interval (seconds)"
+        }
+      }
+    }
+  },
+  "issues": {
+    "transport_mismatch": {
+      "title": "Mini-Display connection needs attention",
+      "description": "{name} is reachable, but Home Assistant is using a different HTTP/HTTPS transport than the display prefers. Open the integration menu, choose Reconfigure, then select HTTP or HTTPS and certificate verification."
+    }
+  }
+}

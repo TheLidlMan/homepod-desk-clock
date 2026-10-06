@@ -1,0 +1,44 @@
+notify:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: mini_display
+    title:
+      selector:
+        text:
+    message:
+      selector:
+        text:
+          multiline: true
+    icon:
+      default: auto
+      selector:
+        select:
+          options: [auto, none, bell, info, check, warning, error, power, door]
+    severity:
+      default: info
+      selector:
+        select:
+          options: [info, success, warning, error, critical]
+    duration:
+      default: 8
+      selector:
+        number:
+          min: 1
+          max: 300
+          step: 1
+          unit_of_measurement: s
+          mode: box
+    position:
+      selector:
+        select:
+          options: [top, bottom, left, right, top_left, top_right, bottom_left, bottom_right]
+dismiss_notifications:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: mini_display
