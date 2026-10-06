@@ -98,7 +98,7 @@ class StandaloneWeather {
     if (today.tm_year != forecastDay.tm_year || today.tm_yday != forecastDay.tm_yday) return false;
     const float temp = current["temperature_2m"], low = daily["temperature_2m_min"][0],
                 high = daily["temperature_2m_max"][0];
-    if (!isfinite(temp) || !isfinite(low) || !isfinite(high) || low > high ||
+    if (!std::isfinite(temp) || !std::isfinite(low) || !std::isfinite(high) || low > high ||
         temp < -90 || temp > 60 || low < -90 || high > 60) return false;
     char temperature[16], range[48], rainText[48] = "Rain forecast unavailable";
     snprintf(temperature, sizeof(temperature), "%d°", static_cast<int>(lroundf(temp)));
@@ -120,7 +120,7 @@ class StandaloneWeather {
           complete = false; continue;
         }
         const float chance = probability, amount = rain.as<float>() + showers.as<float>();
-        if (!isfinite(chance) || !isfinite(amount)) { complete = false; continue; }
+        if (!std::isfinite(chance) || !std::isfinite(amount)) { complete = false; continue; }
         if (last && hour != last + 3600) complete = false;
         if (!first) first = hour;
         last = hour;

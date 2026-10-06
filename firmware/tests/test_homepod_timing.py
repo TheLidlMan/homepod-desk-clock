@@ -18,7 +18,8 @@ output = root / ".cache/tests/homepod-timing"
 output.parent.mkdir(parents=True, exist_ok=True)
 subprocess.run([
     os.environ.get("CC", "cc"), "-std=c11", "-Os", "-g", "-Wall", "-Wextra", "-Werror",
-    "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+    "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-fno-omit-frame-pointer",
+    "-DBR_LE_UNALIGNED=0", "-DBR_BE_UNALIGNED=0",
     f"-I{src}", f"-I{sdk / 'inc'}", f"-I{sdk / 'src'}",
     *map(str, sources), str(root / "firmware/tests/homepod_timing_test.c"),
     "-o", str(output),
