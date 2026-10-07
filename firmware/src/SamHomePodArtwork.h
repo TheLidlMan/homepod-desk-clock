@@ -2,6 +2,7 @@
 
 #include <LittleFS.h>
 #include "ImageAssets.h"
+#include "CrashDiagnostics.h"
 extern "C" {
 #include "homepod_observer.h"
 #include "jpeg_mdi.h"
@@ -51,7 +52,10 @@ class SamHomePodArtwork {
       // Detailed covers can exceed the JPEG cap; retry at a smaller resolution.
       static const uint16_t edges[] = {80, 64, 48};
       const uint16_t requestedEdge = edges[attempt_ < 2 ? attempt_ : 2];
-      if (homepod_observer_request_artwork(observer, requestedEdge, receive, this)) {
+      checkpointRuntime(60);
+      const bool requested = homepod_observer_request_artwork(observer, requestedEdge, receive, this);
+      clearRuntimeCheckpoint();
+      if (requested) {
         requestTrack_ = track_;
         if (attempt_ < 2) ++attempt_;
         nextRequest_ = millis() + 15000;
@@ -119,7 +123,9 @@ class SamHomePodArtwork {
     Conversion io{LittleFS.open(kJpeg, "r"), LittleFS.open(kTemporary, "w"), millis()};
     jpeg_mdi_receipt receipt{};
     jpeg_mdi_io callbacks{&io, read, write, alive};
+    checkpointRuntime(61);
     bool ok = io.input && io.output && jpeg_mdi_convert(memory, &callbacks, edge_, &receipt);
+    clearRuntimeCheckpoint();
     conversionMillis_ = millis() - io.started;
     free(memory);
     io.input.close();
@@ -140,6 +146,7 @@ class SamHomePodArtwork {
     const bool valid = existing && validImageAsset(existing);
     existing.close();
     if (valid) return;
+    checkpointRuntime(62);
     File file = LittleFS.open(kGeneric, "w");
     const uint8_t header[] = {'M','D','I','2',118,0,118,0};
     bool ok = file && file.write(header, sizeof(header)) == sizeof(header);
@@ -169,8 +176,10 @@ class SamHomePodArtwork {
     }
     file.close();
     if (!ok) LittleFS.remove(kGeneric);
+    clearRuntimeCheckpoint();
   }
   void restoreGeneric() {
+    checkpointRuntime(63);
     File source = LittleFS.open(kGeneric, "r"), target = LittleFS.open(kTemporary, "w");
     bool ok = source && target;
     uint8_t bytes[256];
@@ -189,6 +198,7 @@ class SamHomePodArtwork {
       LittleFS.remove(kAsset);
       changed_ = true;
     }
+    clearRuntimeCheckpoint();
   }
   uint32_t track_ = 0, requestTrack_ = 0, nextRequest_ = 0, conversionMillis_ = 0;
   uint16_t edge_ = 0;

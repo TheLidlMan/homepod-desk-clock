@@ -1596,6 +1596,11 @@ void sendApiStatus() {
   response.field("nativeHomePodMessages", samHomePod.diagnostics().messages);
   response.field("nativeHomePodMetadata", samHomePod.diagnostics().metadata_present);
   response.field("nativeHomePodPeakAllocation", samHomePod.diagnostics().peak_frame_allocation);
+  response.field("nativeHomePodMinimumHeap", samHomePod.minimumHeap());
+  response.field("nativeHomePodRejectedRecord", samHomePod.diagnostics().rejected_record_bytes);
+  response.field("nativeHomePodPendingFrame", samHomePod.diagnostics().pending_frame_bytes);
+  response.field("nativeHomePodAllocationRejectReason", samHomePod.diagnostics().allocation_reject_reason);
+  response.field("nativeHomePodLargestDataFrame", samHomePod.diagnostics().max_frame);
   response.field("pixelShift", displayPixelShift);
   response.field("refreshRateHz", displayRefresh.rate());
   response.field("notificationPosition",

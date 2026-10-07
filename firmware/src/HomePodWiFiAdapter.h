@@ -10,6 +10,8 @@ struct HomePodWiFiAdapter {
     bool used[3]={false,false,false};
     uint32_t budgetStarted=0,budgetMillis=0;
     uint8_t lastPhase=0;
+    uint32_t minimumHeap=UINT32_MAX;
+    void sampleHeap(){const uint32_t heap=ESP.getFreeHeap();if(heap<minimumHeap)minimumHeap=heap;}
     explicit HomePodWiFiAdapter(const IPAddress &ip):address(ip) {for(auto &channel:channels)channel.owner=this;}
     void beginBudget(uint32_t amount) {budgetStarted=millis();budgetMillis=amount;}
     bool alive() const {return !budgetMillis || millis()-budgetStarted<budgetMillis;}

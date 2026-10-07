@@ -14,7 +14,10 @@ class SamHomePod {
   const observer_receipt &diagnostics() const { return receipt_; }
   uint32_t pairingMillis() const { return pairingMillis_; }
   uint8_t phase() const { return transport_.lastPhase; }
-  uint32_t minimumHeap() const { return minimumHeap_; }
+  uint32_t minimumHeap() const {
+    const uint32_t value = minimumHeap_ && minimumHeap_ < transport_.minimumHeap ? minimumHeap_ : transport_.minimumHeap;
+    return value == UINT32_MAX ? 0 : value;
+  }
   bool artworkAvailable() const { return artwork_.available(); }
   int artworkError() const { return artwork_.error(); }
   uint32_t artworkConversionMillis() const { return artwork_.conversionMillis(); }
@@ -39,6 +42,7 @@ class SamHomePod {
       const uint32_t pairingStarted = millis();
       transport_.beginBudget(30000);
       observer_ = homepod_observer_open(&factory_, &receipt_);
+      clearRuntimeCheckpoint();
       pairingMillis_ = millis() - pairingStarted;
       sampleHeap();
       if (!observer_) {
@@ -55,6 +59,7 @@ class SamHomePod {
       publishIdle(setValue, selectPage);
       return;
     }
+    clearRuntimeCheckpoint();
     sampleHeap();
     transport_.beginBudget(800);
     artwork_.update(observer_, mayConnect);
@@ -104,7 +109,11 @@ class SamHomePod {
     if (!minimumHeap_ || heap < minimumHeap_) minimumHeap_ = heap;
   }
   void disconnect() {
-    if (observer_) homepod_observer_close(observer_);
+    if (observer_) {
+      checkpointRuntime(64);
+      homepod_observer_close(observer_);
+      clearRuntimeCheckpoint();
+    }
     observer_ = nullptr;
     hasPosition_ = false;
     artwork_.reset();

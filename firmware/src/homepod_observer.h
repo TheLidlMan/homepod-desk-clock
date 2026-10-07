@@ -10,12 +10,14 @@ typedef struct {
     bool (*reserve)(void *,size_t); /* Optional heap/contiguous-block floor guard. */
     void (*trace)(void *,uint8_t);
     bool (*within_deadline)(void *);
+    bool (*reserve_record)(void *,size_t); /* Optional guard for immediately drained RX records. */
 } homepod_factory;
 typedef struct homepod_observer homepod_observer;
 typedef struct {
     uint32_t messages,state_updates;
     size_t max_frame,max_protobuf,context_bytes,peak_frame_allocation;
     int stage,error,transport_error,control_status;
+    size_t rejected_record_bytes,pending_frame_bytes;int allocation_reject_reason;
     bool metadata_present,paired;
 } observer_receipt;
 homepod_observer *homepod_observer_open(homepod_factory *,observer_receipt *);

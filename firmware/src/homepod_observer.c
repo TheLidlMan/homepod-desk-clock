@@ -27,6 +27,7 @@ static void clear(void *p,size_t n){volatile uint8_t *v=p;while(n--)*v++=0;}
 static uint64_t be(const uint8_t *p,unsigned n){uint64_t v=0;while(n--)v=(v<<8)|*p++;return v;}
 static void putbe(uint8_t *p,uint64_t v,unsigned n){for(unsigned i=0;i<n;++i)p[n-1-i]=(uint8_t)(v>>(i*8));}
 static bool reserve(homepod_factory *f,size_t n){return !f->reserve||f->reserve(f->opaque,n);}
+static bool reserve_record(homepod_factory *f,size_t n){return f->reserve_record?f->reserve_record(f->opaque,n):reserve(f,n);}
 static void phase(homepod_factory *f,uint8_t n){if(f->trace)f->trace(f->opaque,n);}
 static bool live(homepod_factory *f){return !f->within_deadline||f->within_deadline(f->opaque);}
 static bool all(hap_io *io,uint8_t *p,size_t n,bool write){
@@ -52,14 +53,35 @@ static int encrypted_read(homepod_observer *o,channel *c,uint8_t **plain,bool *a
     }
     uint8_t aad[2]={f[0],f[1]};
     bool dynamic=n+18>sizeof(o->frame);
-    if(dynamic && (n+16+o->data_expected>DATA_CAP+16 || !reserve(&o->factory,n+16)))return -6;
-    uint8_t *data=dynamic?malloc(n+16):f+2;
-    bool owned=data!=f+2;
-    if(!data)return -6;
-    if(!all(&c->io,data,n+16,false)){if(owned){clear(data,n+16);free(data);}return -4;}
+    /* An authenticated continuation can fill its existing reassembly arena.
+     * Keep the tag separate: the final record may end exactly at the arena end. */
+    bool pending=c==&o->data && o->data_buffer && o->data_used<=o->data_expected &&
+        n<=o->data_expected-o->data_used;
+    bool transient=dynamic && !pending && !reserve(&o->factory,n+16);
+    if(transient && !reserve_record(&o->factory,n+16)){
+        o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
+        o->receipt->allocation_reject_reason=2;return -6;
+    }
+    uint8_t *data=pending?o->data_buffer+o->data_used:dynamic?malloc(n+16):f+2;
+    bool owned=dynamic && !pending;
+    if(!data){o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;o->receipt->allocation_reject_reason=3;return -6;}
+    uint8_t received_tag[16];
+    if(pending){
+        if(!all(&c->io,data,n,false)||!all(&c->io,received_tag,16,false))return -4;
+    }else{
+        if(!all(&c->io,data,n+16,false)){if(owned){clear(data,n+16);free(data);}return -4;}
+        memcpy(received_tag,data+n,16);
+    }
+    /* A lower RX margin is only a drain peak. Restore the normal budget
+     * before authentication or metadata/artwork callbacks can allocate. */
+    if(transient && !reserve(&o->factory,0)){
+        clear(data,n+16);free(data);
+        o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
+        o->receipt->allocation_reject_reason=4;return -6;
+    }
     uint8_t iv[12]={0},tag[16];for(unsigned i=0;i<8;++i)iv[4+i]=(uint8_t)(c->rx>>(8*i));
     br_poly1305_ctmul_run(c->read_key,iv,data,n,aad,2,tag,br_chacha20_ct_run,0);
-    unsigned diff=0;for(unsigned i=0;i<16;++i)diff|=tag[i]^data[n+i];
+    unsigned diff=0;for(unsigned i=0;i<16;++i)diff|=tag[i]^received_tag[i];
     if(diff){if(owned){clear(data,n+16);free(data);}return -5;}
     ++c->rx;*plain=data;*allocated=owned;
     if(owned && n+16>o->receipt->peak_frame_allocation)o->receipt->peak_frame_allocation=n+16;
@@ -216,7 +238,7 @@ static bool data_chunk(homepod_observer *o,const uint8_t *p,size_t n){
             memcpy(o->data_buffer,o->data_header,32);o->data_expected=expected;o->data_used=32;o->header_used=0;
         }
         size_t k=o->data_expected-o->data_used;if(k>n)k=n;
-        memcpy(o->data_buffer+o->data_used,p,k);o->data_used+=k;p+=k;n-=k;
+        if(o->data_buffer+o->data_used!=p)memcpy(o->data_buffer+o->data_used,p,k);o->data_used+=k;p+=k;n-=k;
         if(o->data_used==o->data_expected){
             bool ok=data_frame(o,o->data_buffer,o->data_used);
             clear(o->data_buffer,o->data_expected);free(o->data_buffer);o->data_buffer=NULL;o->data_expected=o->data_used=0;
@@ -307,7 +329,7 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
             /* Small records use the shared RX/TX frame; protect their remainder
              * while ACKs are emitted. Large records already own a separate arena. */
             const uint8_t *source=plain;
-            if(!owned){memcpy(o->out,plain,n);source=o->out;}
+            if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
             bool ok=data_chunk(o,source,n);release_record(plain,n,owned);
             if(!ok)return false;
             if(!o->data_buffer && !o->header_used)break;
@@ -326,7 +348,7 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
         uint8_t *plain;bool owned;int n=encrypted_read(o,&o->event,&plain,&owned);
         if(n<0){o->receipt->error=15;return false;}
         const uint8_t *source=plain;
-        if(!owned){memcpy(o->out,plain,n);source=o->out;}
+        if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
         bool ok=event_chunk(o,source,n);release_record(plain,n,owned);
         if(!ok){o->receipt->error=16;return false;}
     }

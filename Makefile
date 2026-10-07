@@ -73,12 +73,13 @@ test-native:
 	@test -d firmware/.pio/libdeps/sdpro/ArduinoJson/src || { echo "run make build first to install ArduinoJson"; exit 1; }
 	@mkdir -p .cache/tests
 	python3 firmware/tests/test_homepod_timing.py
+	python3 firmware/tests/test_runtime_checkpoint.py
 	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
 		-I firmware/tests/weather_stubs -I firmware/src -I firmware/.pio/libdeps/sdpro/ArduinoJson/src \
 		firmware/tests/sam_clock_test.cpp -o .cache/tests/sam-clock
 	.cache/tests/sam-clock
 	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
-		-DSAM_HOMEPOD_TRACE=0 -I firmware/tests/homepod_stubs -I firmware/src \
+		-DSAM_HOMEPOD_TRACE=0 -I firmware/tests/homepod_stubs -I firmware/src -I firmware/.pio/libdeps/sdpro/ArduinoJson/src \
 		firmware/tests/homepod_transport_test.cpp firmware/src/HomePodWiFiAdapter.cpp \
 		-o .cache/tests/homepod-transport
 	.cache/tests/homepod-transport
