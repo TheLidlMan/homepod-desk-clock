@@ -238,7 +238,8 @@ static bool data_chunk(homepod_observer *o,const uint8_t *p,size_t n){
             memcpy(o->data_buffer,o->data_header,32);o->data_expected=expected;o->data_used=32;o->header_used=0;
         }
         size_t k=o->data_expected-o->data_used;if(k>n)k=n;
-        if(o->data_buffer+o->data_used!=p)memcpy(o->data_buffer+o->data_used,p,k);o->data_used+=k;p+=k;n-=k;
+        if(o->data_buffer+o->data_used!=p){memcpy(o->data_buffer+o->data_used,p,k);}
+        o->data_used+=k;p+=k;n-=k;
         if(o->data_used==o->data_expected){
             bool ok=data_frame(o,o->data_buffer,o->data_used);
             clear(o->data_buffer,o->data_expected);free(o->data_buffer);o->data_buffer=NULL;o->data_expected=o->data_used=0;
