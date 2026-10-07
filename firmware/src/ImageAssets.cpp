@@ -214,10 +214,16 @@ bool validImageAsset(File &file, uint16_t *width, uint16_t *height) {
   return true;
 }
 
-ImageAssetRenderCache::~ImageAssetRenderCache() {
+ImageAssetRenderCache::~ImageAssetRenderCache() { reset(); }
+
+void ImageAssetRenderCache::reset() {
   for (Entry &entry : entries_) {
     if (entry.file) entry.file.close();
+    entry = Entry{};
   }
+  decodedRows_.reset();
+  useCounter_ = 0;
+  cooperativeYield_ = true;
 }
 
 void ImageAssetRenderCache::enableRowCache() {

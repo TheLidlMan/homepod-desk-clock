@@ -75,6 +75,10 @@ test-native:
 	python3 firmware/tests/test_homepod_timing.py
 	python3 firmware/tests/test_runtime_checkpoint.py
 	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+		-DESP8266 -I firmware/tests/image_asset_stubs -I firmware/src \
+		firmware/tests/image_asset_cache_test.cpp firmware/src/ImageAssets.cpp -o .cache/tests/image-asset-cache
+	.cache/tests/image-asset-cache
+	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
 		-I firmware/tests/weather_stubs -I firmware/src -I firmware/.pio/libdeps/sdpro/ArduinoJson/src \
 		firmware/tests/sam_clock_test.cpp -o .cache/tests/sam-clock
 	.cache/tests/sam-clock

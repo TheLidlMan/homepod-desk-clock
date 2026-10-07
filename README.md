@@ -28,7 +28,11 @@ keep a 4 KiB margin. A live
 6,498-byte allocation rejection is covered by regression tests. A separate
 hardware watchdog reset has no captured
 stack or confirmed cause. RTC phase breadcrumbs now help diagnose a recurrence.
-Multi-day reliability and power or temperature measurements remain unverified.
+Transition image caches now release decoded rows and open files after painting,
+including low-memory fallback paths, so covers cannot retain networking memory
+or keep a replaced asset open between transitions. Host checks exercise 1,000
+cache-release/replacement cycles. Multi-day reliability and power or temperature
+measurements remain unverified.
 
 ## Build
 
@@ -40,7 +44,7 @@ python3 -m venv .venv
 npm --prefix firmware/web ci
 cp firmware/src/ClockConfig.example.h firmware/src/ClockConfig.h
 # Edit ClockConfig.h: HomePod address, weather location and night hours.
-PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.2
+PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.3
 PATH="$PWD/.venv/bin:$PATH" make test-native
 ```
 
@@ -111,7 +115,8 @@ included. To regenerate the packs from the upstream Google Fonts files:
 
 Host coverage includes transport ownership/reconnect cycles, encrypted event
 ordering, authenticated large continuations and cross-frame records, malformed
-and stalled events, RTC reset breadcrumbs, clock/weather policy and inherited
+and stalled events, RTC reset breadcrumbs, image-cache lifetime/replacement,
+clock/weather policy and inherited
 renderer/configuration tests. `make web-check` checks the web UI; `make check`
 runs schema checks and PlatformIO static analysis (which includes dependency
 diagnostics). `make check` may delete build artifacts; preserve a binary first.

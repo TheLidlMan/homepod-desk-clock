@@ -253,6 +253,10 @@ void PageTransitionRenderer::render(
     display_.fillScreen(nextPage.background);
     paintScenePage(display_, nextPage, contentOffsetX, contentOffsetY,
                    0, 0, 240, 240, displayFontState_, &imageCache_);
+    // Fallback painting also owns disposable font/image resources.
+    if (display_.fontLoaded) display_.unloadFont();
+    displayFontState_ = FontRenderState{};
+    imageCache_.reset();
     lastDurationMs_ = millis() - startedAt;
     return;
   }
@@ -357,5 +361,8 @@ void PageTransitionRenderer::render(
   paintScenePage(display_, nextPage, contentOffsetX, contentOffsetY,
                   0, 0, 240, 240, displayFontState_, &imageCache_);
 #endif
+  // A transition owns these rows/files only while painting. Retaining them
+  // fragments the observer's RX/reconnect heap and keeps replaced covers open.
+  imageCache_.reset();
   lastDurationMs_ = millis() - startedAt;
 }

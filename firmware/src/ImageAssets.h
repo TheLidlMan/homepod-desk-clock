@@ -111,6 +111,7 @@ class ImageAssetMemoryReader {
 class ImageAssetRenderCache {
  public:
   ~ImageAssetRenderCache();
+  void reset();
 
   File *open(const char *assetId, uint16_t frameIndex, uint16_t *width,
              uint16_t *height);
