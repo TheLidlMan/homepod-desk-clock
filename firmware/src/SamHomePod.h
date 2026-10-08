@@ -63,7 +63,10 @@ class SamHomePod {
       lastUpdates_ = UINT32_MAX;
     }
     transport_.beginBudget(800);
-    if (!homepod_observer_poll(observer_, millis())) {
+    const bool received = homepod_observer_poll(observer_, millis());
+    // Release RX first, then send ACKs before an HTTP request or fade can run.
+    transport_.beginBudget(800);
+    if (!received || !homepod_observer_acknowledge(observer_)) {
       disconnect();
       retryAt_ = millis() + 30000;
       publishIdle(setValue, selectPage);

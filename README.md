@@ -34,8 +34,17 @@ or keep a replaced asset open between transitions. Host checks exercise 1,000
 cache-release/replacement cycles. Multi-day reliability and power or temperature
 measurements remain unverified. A later exception reset has no confirmed source;
 the captured program counter could not be mapped to firmware code. Failed data
-frames now distinguish malformed protobuf lengths, expired acknowledgement
+frames distinguish malformed protobuf lengths, expired acknowledgement
 budgets and failed acknowledgement writes in the transport diagnostic.
+A later live 6,703-byte now-playing snapshot exposed an acknowledgement write
+failure while its receive arena was still allocated. Data acknowledgements now
+wait until that arena is released. The native owner drains them immediately
+with a fresh bounded deadline, before rendering or handling another HTTP request.
+Subscriptions and artwork requests wait behind them. Metadata sockets disable
+Nagle buffering so small acknowledgements are sent promptly. The queue holds at most
+eight sequences per authenticated record; larger bursts fail safely. Regression
+checks reproduce the prior error 13 / -52 with a constrained transmit allocator
+and cover expired receive deadlines, queue limits and malformed lengths.
 
 ## Build
 
@@ -47,7 +56,7 @@ python3 -m venv .venv
 npm --prefix firmware/web ci
 cp firmware/src/ClockConfig.example.h firmware/src/ClockConfig.h
 # Edit ClockConfig.h: HomePod hostname/address, weather location and night hours.
-PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.4
+PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.5
 PATH="$PWD/.venv/bin:$PATH" make test-native
 ```
 

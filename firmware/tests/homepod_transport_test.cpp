@@ -26,6 +26,7 @@ int main() {
     hap_io socket{};
     assert(factory.connect(factory.opaque, 7000, &socket));
     assert(factory.available(factory.opaque, &socket) > 0);
+    assert(adapter.channels[0].client.getNoDelay());
     assert(!factory.reserve(factory.opaque, 8192));
     factory.close(factory.opaque, &socket);
     assert(socket.opaque == nullptr);
@@ -60,4 +61,12 @@ int main() {
   incomingAvailable=false;const uint32_t before=fakeTick;
   assert(rx.read(rx.opaque,bytes,sizeof(bytes))==-1&&fakeTick==before);
   factory.close(factory.opaque,&rx);incomingAvailable=true;
+  heapLimit=18000;hap_io tx{};assert(factory.connect(factory.opaque,7000,&tx));
+  nextWriteSucceeds=false;
+  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==0&&adapter.lastPhase==92);
+  adapter.channels[0].client.stop(20);
+  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==0&&adapter.lastPhase==93);
+  nextWriteSucceeds=true;adapter.beginBudget(10);fakeTick+=11;
+  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==-1&&adapter.lastPhase==91);
+  factory.close(factory.opaque,&tx);assert(retainedContexts==0);
 }

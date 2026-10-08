@@ -7,6 +7,7 @@
 inline uint32_t fakeTick = 0;
 inline unsigned retainedContexts = 0;
 inline bool nextConnectSucceeds = true;
+inline bool nextWriteSucceeds = true;
 inline uint32_t heapLimit=18000,blockLimit=16000;
 inline bool incomingAvailable=true;
 inline uint32_t millis() { return fakeTick; }
@@ -35,13 +36,15 @@ struct FakeESP {
 inline FakeESP ESP;
 class WiFiClient {
   struct Context {
-    bool closed = false;
+    bool closed = false, noDelay = false;
     Context() { ++retainedContexts; }
     ~Context() { --retainedContexts; }
   };
   std::shared_ptr<Context> context_;
  public:
   void setTimeout(unsigned) {}
+  void setNoDelay(bool value) {if(context_)context_->noDelay=value;}
+  bool getNoDelay() const {return context_&&context_->noDelay;}
   bool connect(const IPAddress &, uint16_t) {
     context_ = std::make_shared<Context>();
     return nextConnectSucceeds;
@@ -52,5 +55,5 @@ class WiFiClient {
   size_t peekAvailable() const { return context_ && incomingAvailable ? 6000 : 0; }
   bool connected() const { return context_ && !context_->closed; }
   int read(uint8_t *bytes, size_t size) { std::memset(bytes, 0, size); return size; }
-  size_t write(const uint8_t *, size_t size) { return size; }
+  size_t write(const uint8_t *, size_t size) { return connected()&&nextWriteSucceeds?size:0; }
 };

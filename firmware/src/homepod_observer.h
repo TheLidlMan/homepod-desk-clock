@@ -23,6 +23,8 @@ typedef struct {
 homepod_observer *homepod_observer_open(homepod_factory *,observer_receipt *);
 /* Call often; now_ms is monotonic. No playback/volume/routing writes. */
 bool homepod_observer_poll(homepod_observer *,uint32_t now_ms);
+/* Native owners call this immediately after poll with a fresh send budget. */
+bool homepod_observer_acknowledge(homepod_observer *);
 const mrp_metadata *homepod_observer_metadata(const homepod_observer *);
 const char *homepod_observer_item(const homepod_observer *);
 /* Sink must persist borrowed JPEG bytes synchronously; decode AFTER poll returns. */

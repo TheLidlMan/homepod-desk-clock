@@ -15,6 +15,7 @@ struct homepod_observer {
     uint8_t frame[640],out[640],*data_buffer;size_t data_used,data_expected;
     uint8_t data_header[32],event_header[512];size_t header_used,event_header_used;
     uint32_t event_remaining,event_cseq;bool event_rtsp;
+    uint64_t pending_data_acks[8];uint8_t pending_data_ack_count;
     uint32_t cseq,last_feedback;uint64_t seq;
     bool subscribed,art_pending,feedback_started;uint32_t queue_location,art_counter,art_started,last_poll;uint16_t art_edge;
     char art_requested_item[129];
@@ -213,10 +214,20 @@ static bool data_frame(homepod_observer *o,const uint8_t *p,size_t n){
         }
     }
     if(!memcmp(p+4,"sync",4)){
-        uint8_t ack[32]={0};putbe(ack,32,4);memcpy(ack+4,"rply",4);memcpy(ack+20,p+20,8);
-        if(!live(&o->factory)){o->receipt->transport_error=-51;return false;}
-        if(!encrypted_send(o,&o->data,ack,32)){o->receipt->transport_error=-52;return false;}
+        /* Keep only sequence numbers: the authenticated RX arena must be freed
+         * before TCP allocates an outgoing acknowledgement. */
+        if(o->pending_data_ack_count==8){o->receipt->transport_error=-54;return false;}
+        o->pending_data_acks[o->pending_data_ack_count++]=be(p+20,8);
     }return true;
+}
+static bool flush_data_acks(homepod_observer *o){
+    for(unsigned i=0;i<o->pending_data_ack_count;++i){
+        if(!live(&o->factory)){o->receipt->transport_error=-51;return false;}
+        uint8_t ack[32]={0};putbe(ack,32,4);memcpy(ack+4,"rply",4);
+        putbe(ack+20,o->pending_data_acks[i],8);
+        if(!encrypted_send(o,&o->data,ack,32)){o->receipt->transport_error=-52;return false;}
+    }
+    o->pending_data_ack_count=0;return true;
 }
 static bool data_chunk(homepod_observer *o,const uint8_t *p,size_t n){
     while(n){
@@ -314,10 +325,22 @@ homepod_observer *homepod_observer_open(homepod_factory *factory,observer_receip
 fail:
     clear(K,64);homepod_observer_close(o);return NULL;
 }
+bool homepod_observer_acknowledge(homepod_observer *o){
+    if(!o)return false;
+    if(!o->pending_data_ack_count)return true;
+    phase(&o->factory,44);
+    if(!flush_data_acks(o)){o->receipt->error=13;return false;}
+    return true;
+}
 bool homepod_observer_poll(homepod_observer *o,uint32_t now){
     if(!o->feedback_started){o->last_feedback=now;o->feedback_started=true;}
     o->last_poll=now;if(o->art_pending&&now-o->art_started>=10000)o->art_pending=false;
     if(!live(&o->factory)){o->receipt->error=21;return false;}
+    /* A fresh poll gives the ACK its own deadline, with no large RX allocation
+     * alive. Do not interleave another read/subscription/artwork write. */
+    if(o->pending_data_ack_count){
+        return homepod_observer_acknowledge(o);
+    }
     int available=o->factory.available(o->factory.opaque,&o->data.io);
     if(available<0){o->receipt->error=10;return false;}
     if(available || o->data_buffer || o->header_used){
@@ -334,6 +357,7 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
             if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
             bool ok=data_chunk(o,source,n);release_record(plain,n,owned);
             if(!ok)return false;
+            if(o->pending_data_ack_count)return true;
             if(!o->data_buffer && !o->header_used)break;
             if(record==9){o->receipt->error=19;return false;}
         }
@@ -373,7 +397,7 @@ void homepod_observer_close(homepod_observer *o){
 
 bool homepod_observer_request_artwork(homepod_observer *o,uint16_t edge,
     bool (*sink)(void *,const uint8_t *,size_t,uint16_t,uint16_t),void *opaque){
-    if(!o||!sink||o->art_pending||!o->subscribed||!o->metadata.title[0]||edge<16||edge>118||!live(&o->factory))return false;
+    if(!o||!sink||o->pending_data_ack_count||o->art_pending||!o->subscribed||!o->metadata.title[0]||edge<16||edge>118||!live(&o->factory))return false;
     if(++o->art_counter==0)++o->art_counter;
     int id=snprintf(o->art_request,sizeof(o->art_request),"MiniArt-%08x",(unsigned)o->art_counter);
     if(id<=0||(size_t)id>=sizeof(o->art_request))return false;

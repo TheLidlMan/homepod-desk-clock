@@ -40,8 +40,11 @@ static int receive(void *opaque,uint8_t *p,size_t n) {
 }
 static int send_bytes(void *opaque,const uint8_t *p,size_t n) {
     auto *channel=static_cast<HomePodWiFiAdapter::Channel *>(opaque);
-    if(!channel->owner->alive())return -1;
-    return static_cast<int>(channel->client.write(p,n));
+    if(!channel->owner->alive()){channel->owner->trace(91);return -1;}
+    const int sent=static_cast<int>(channel->client.write(p,n));
+    if(sent<0 || static_cast<size_t>(sent)!=n)
+        channel->owner->trace(channel->client.connected()?92:93);
+    return sent;
 }
 static bool secure_random(void *,uint8_t *p,size_t n){return os_get_random(p,n)==0;}
 static bool connect_channel(void *opaque,uint16_t port,hap_io *io) {
@@ -53,6 +56,7 @@ static bool connect_channel(void *opaque,uint16_t port,hap_io *io) {
             owner->channels[i].client=WiFiClient();
             return false;
         }
+        owner->channels[i].client.setNoDelay(true);
         owner->used[i]=true;
         *io={&owner->channels[i],receive,send_bytes,secure_random,trace_io,alive_io};return true;
     }
