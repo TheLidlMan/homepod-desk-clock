@@ -32,7 +32,10 @@ Transition image caches now release decoded rows and open files after painting,
 including low-memory fallback paths, so covers cannot retain networking memory
 or keep a replaced asset open between transitions. Host checks exercise 1,000
 cache-release/replacement cycles. Multi-day reliability and power or temperature
-measurements remain unverified.
+measurements remain unverified. A later exception reset has no confirmed source;
+the captured program counter could not be mapped to firmware code. Failed data
+frames now distinguish malformed protobuf lengths, expired acknowledgement
+budgets and failed acknowledgement writes in the transport diagnostic.
 
 ## Build
 
@@ -43,14 +46,22 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements-build.txt
 npm --prefix firmware/web ci
 cp firmware/src/ClockConfig.example.h firmware/src/ClockConfig.h
-# Edit ClockConfig.h: HomePod address, weather location and night hours.
-PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.3
+# Edit ClockConfig.h: HomePod hostname/address, weather location and night hours.
+PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.4
 PATH="$PWD/.venv/bin:$PATH" make test-native
 ```
 
-The OTA image is `firmware/.pio/build/sdpro/firmware.bin`. Reserve the HomePod's
-IP in your router. Configuration is compiled in for now; there is no HomePod
-discovery/settings panel. `ClockConfig.h` is ignored by Git. It needs no passwords.
+The OTA image is `firmware/.pio/build/sdpro/firmware.bin`. Set
+`DESK_HOMEPOD_HOSTNAME` to your speaker's exact Bonjour hostname, including
+`.local`, to follow IP changes after a router replacement or DHCP renewal.
+Find it with `dns-sd -Z _airplay._tcp local.` on a Mac: use the hostname in that
+speaker's SRV record. Only the configured hostname is resolved; a missing
+speaker retries without using a stale IP. The query runs only before pairing
+with a bounded timeout and the SDK's fixed DNS cache. The pinned ESP8266
+lwIP build supports multicast lookup for `.local` names. If you leave the
+hostname empty, reserve the configured HomePod IP in your router instead.
+Configuration is compiled in; there is no HomePod settings panel.
+`ClockConfig.h` is ignored by Git. It needs no passwords.
 The example uses London weather and 23:00–07:00 night mode. Set the device's
 timezone in its web panel so the clock and night schedule use your local time.
 

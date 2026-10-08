@@ -11,7 +11,23 @@ inline uint32_t heapLimit=18000,blockLimit=16000;
 inline bool incomingAvailable=true;
 inline uint32_t millis() { return fakeTick; }
 inline void delay(unsigned ms) { fakeTick += ms; }
-struct IPAddress { IPAddress(int, int, int, int) {} };
+struct IPAddress {
+  uint32_t value=0;
+  IPAddress() = default;
+  IPAddress(int a,int b,int c,int d):value((uint32_t(a)<<24)|(uint32_t(b)<<16)|(uint32_t(c)<<8)|uint32_t(d)){}
+  explicit operator uint32_t() const {return value;}
+};
+inline unsigned queryCount=0;
+inline IPAddress discoveredAddress(192,168,1,42);
+inline bool discoveryAvailable=true;
+struct FakeWiFi {
+ int hostByName(const char *hostname,IPAddress &result,uint32_t timeout){
+  ++queryCount;
+  if(timeout!=1500 || !discoveryAvailable || std::strcmp(hostname,"speaker.local")) return 0;
+  result=discoveredAddress;return 1;
+ }
+};
+inline FakeWiFi WiFi;
 struct FakeESP {
   uint32_t getFreeHeap() const { return heapLimit - retainedContexts * 6000; }
   uint32_t getMaxFreeBlockSize() const { return retainedContexts ? 4808 : blockLimit; }

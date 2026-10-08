@@ -3,6 +3,23 @@
 
 int main() {
   HomePodWiFiAdapter adapter(IPAddress(192, 168, 1, 100));
+  // Empty hostname preserves fixed-address mode; missing names cannot use a stale IP.
+  const uint32_t original=static_cast<uint32_t>(adapter.address);
+  assert(adapter.resolveAddress("") && queryCount==0);
+  for(unsigned retry=0;retry<100;++retry){
+    discoveredAddress=IPAddress(192,168,1,int(42+retry));
+    assert(adapter.resolveAddress("speaker.local"));
+    assert(static_cast<uint32_t>(adapter.address)==static_cast<uint32_t>(discoveredAddress));
+  }
+  assert(static_cast<uint32_t>(adapter.address)!=original);
+  const uint32_t lastAddress=static_cast<uint32_t>(adapter.address);
+  assert(!adapter.resolveAddress("missing.local"));
+  assert(static_cast<uint32_t>(adapter.address)==lastAddress);
+  discoveryAvailable=false;
+  assert(!adapter.resolveAddress("speaker.local"));
+  discoveryAvailable=true;discoveredAddress=IPAddress();
+  assert(!adapter.resolveAddress("speaker.local"));
+  assert(static_cast<uint32_t>(adapter.address)==lastAddress);
   auto factory = adapter.factory();
   // Close with unread data, then repeat: the next handshake must remain possible.
   for (unsigned retry = 0; retry < 100; ++retry) {

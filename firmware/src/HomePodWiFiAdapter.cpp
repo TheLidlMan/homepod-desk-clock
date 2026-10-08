@@ -9,6 +9,14 @@ void HomePodWiFiAdapter::trace(uint8_t phase) {
     checkpointRuntime(phase);
 
 }
+// The pinned lwIP resolver supports .local mDNS names without retaining a service list.
+bool HomePodWiFiAdapter::resolveAddress(const char *hostname) {
+    if (!hostname || !hostname[0]) return true;
+    IPAddress found;
+    if (WiFi.hostByName(hostname, found, 1500) != 1 || !static_cast<uint32_t>(found)) return false;
+    address = found;
+    return true;
+}
 static bool alive_io(void *opaque){return static_cast<HomePodWiFiAdapter::Channel *>(opaque)->owner->alive();}
 static void trace_io(void *opaque,uint8_t phase){static_cast<HomePodWiFiAdapter::Channel *>(opaque)->owner->trace(phase);}
 static bool alive_factory(void *opaque){return static_cast<HomePodWiFiAdapter *>(opaque)->alive();}

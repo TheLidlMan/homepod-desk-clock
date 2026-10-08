@@ -207,14 +207,15 @@ static bool data_frame(homepod_observer *o,const uint8_t *p,size_t n){
             const uint8_t *pb=data.data;size_t left=data.count;
             while(left){uint64_t length;size_t k;
                 if(*pb==8){handle(o,pb,left);break;}
-                if(!varread(pb,left,&length,&k)||length>left-k)return false;
+                if(!varread(pb,left,&length,&k)||length>left-k){o->receipt->transport_error=-50;return false;}
                 handle(o,pb+k,(size_t)length);pb+=k+length;left-=k+length;
             }
         }
     }
     if(!memcmp(p+4,"sync",4)){
         uint8_t ack[32]={0};putbe(ack,32,4);memcpy(ack+4,"rply",4);memcpy(ack+20,p+20,8);
-        if(!encrypted_send(o,&o->data,ack,32))return false;
+        if(!live(&o->factory)){o->receipt->transport_error=-51;return false;}
+        if(!encrypted_send(o,&o->data,ack,32)){o->receipt->transport_error=-52;return false;}
     }return true;
 }
 static bool data_chunk(homepod_observer *o,const uint8_t *p,size_t n){

@@ -6,6 +6,10 @@
 #include "HomePodWiFiAdapter.h"
 #include "SamHomePodArtwork.h"
 
+#ifndef DESK_HOMEPOD_HOSTNAME
+#define DESK_HOMEPOD_HOSTNAME ""
+#endif
+
 // The native observer owns only HomePod metadata; playback stays on Apple devices.
 class SamHomePod {
  public:
@@ -37,6 +41,12 @@ class SamHomePod {
       if (!mayConnect || static_cast<int32_t>(tick - retryAt_) < 0) return;
       retryAt_ = tick + 30000;
       // Avoid starting a handshake while a renderer or HTTP request owns memory.
+      if (ESP.getFreeHeap() < 15000 || ESP.getMaxFreeBlockSize() < 8192) return;
+      if (!transport_.resolveAddress(DESK_HOMEPOD_HOSTNAME)) {
+        receipt_.error = 22; // Configured speaker not discovered; retry, without using a stale IP.
+        publishIdle(setValue, selectPage);
+        return;
+      }
       if (ESP.getFreeHeap() < 15000 || ESP.getMaxFreeBlockSize() < 8192) return;
       factory_ = transport_.factory();
       const uint32_t pairingStarted = millis();

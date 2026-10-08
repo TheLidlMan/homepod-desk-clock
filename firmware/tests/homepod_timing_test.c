@@ -4,10 +4,10 @@
 #endif
 #include HOMEPOD_OBSERVER_SOURCE
 #include <assert.h>
-typedef struct {uint8_t bytes[16384];size_t used,pos;unsigned writes;bool gated;} mock;
+typedef struct {uint8_t bytes[16384];size_t used,pos;unsigned writes;bool gated,reject_writes;} mock;
 static mock streams[3];
 static int mock_read(void *v,uint8_t *p,size_t n){mock *m=v;if(m->gated&&streams[1].writes==0)return -1;size_t k=m->used-m->pos;if(k>n)k=n;if(!k)return -1;memcpy(p,m->bytes+m->pos,k);m->pos+=k;return (int)k;}
-static int mock_write(void *v,const uint8_t *p,size_t n){(void)p;mock *m=v;++m->writes;return (int)n;}
+static int mock_write(void *v,const uint8_t *p,size_t n){(void)p;mock *m=v;++m->writes;return m->reject_writes?-1:(int)n;}
 static int available(void *v,hap_io *io){(void)v;mock *m=io->opaque;return (int)(m->used-m->pos);}
 static void append(mock *m,const char *p,size_t n,uint64_t rx){uint8_t *f=m->bytes+m->used;assert(m->used+n+18<sizeof(m->bytes));f[0]=(uint8_t)n;f[1]=(uint8_t)(n>>8);memcpy(f+2,p,n);uint8_t key[32]={0},iv[12]={0};for(unsigned i=0;i<8;i++)iv[4+i]=(uint8_t)(rx>>(8*i));br_poly1305_ctmul_run(key,iv,f+2,n,f,2,f+2+n,br_chacha20_ct_run,1);m->used+=n+18;}
 static homepod_observer create(observer_receipt *r){homepod_observer o={0};memset(streams,0,sizeof(streams));memset(r,0,sizeof(*r));r->stage=6;o.receipt=r;o.factory.available=available;channel *c[]={&o.control,&o.event,&o.data};for(unsigned i=0;i<3;i++)c[i]->io=(hap_io){.opaque=&streams[i],.read=mock_read,.write=mock_write};return o;}
@@ -19,6 +19,20 @@ static bool allow_record(void *opaque,size_t n){(void)opaque;++record_reservatio
 static void pending_frame(homepod_observer *o,size_t expected,size_t used){
  o->data_buffer=calloc(1,expected);assert(o->data_buffer);o->data_expected=expected;o->data_used=used;
  putbe(o->data_buffer,expected,4);memcpy(o->data_buffer+4,"rply",4);
+}
+static bool expired(void *opaque){(void)opaque;return false;}
+static void ack_failure_tests(void){
+ observer_receipt r;homepod_observer o=create(&r);uint8_t frame[32]={0};
+ putbe(frame,32,4);memcpy(frame+4,"sync",4);
+ o.factory.within_deadline=expired;
+ assert(!data_frame(&o,frame,32)&&r.transport_error==-51&&streams[2].writes==0);
+ o=create(&r);streams[2].reject_writes=true;
+ assert(!data_frame(&o,frame,32)&&r.transport_error==-52);
+ o=create(&r);assert(data_frame(&o,frame,32)&&r.transport_error==0);
+ uint8_t broken[128]={0},truncated_varint=0x80;
+ size_t n=bplist_wrap_data(broken+32,sizeof(broken)-32,&truncated_varint,1);
+ assert(n);putbe(broken,n+32,4);memcpy(broken+4,"rply",4);o=create(&r);
+ assert(!data_frame(&o,broken,n+32)&&r.transport_error==-50&&r.messages==0);
 }
 static void reassembly_tests(void){
  observer_receipt r;homepod_observer o;char tail[5968]={0};
@@ -95,4 +109,4 @@ int main(void){observer_receipt r;homepod_observer o=create(&r);
  assert(homepod_observer_poll(&o,500)&&streams[0].writes==0);
  assert(!homepod_observer_poll(&o,1000)&&r.error==17);
 #endif
- reassembly_tests();puts("Timing and authenticated reassembly regressions passed");return 0;}
+ ack_failure_tests();reassembly_tests();puts("Timing and authenticated reassembly regressions passed");return 0;}

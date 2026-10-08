@@ -16,6 +16,7 @@ struct HomePodWiFiAdapter {
     void beginBudget(uint32_t amount) {budgetStarted=millis();budgetMillis=amount;}
     bool alive() const {return !budgetMillis || millis()-budgetStarted<budgetMillis;}
     void trace(uint8_t phase);
+    bool resolveAddress(const char *hostname);
     homepod_factory factory();
 };
 #endif

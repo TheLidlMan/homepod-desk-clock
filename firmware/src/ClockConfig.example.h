@@ -1,6 +1,8 @@
 #pragma once
 // Copy to ClockConfig.h (ignored by Git), edit, then rebuild.
-// Use a DHCP reservation for the HomePod. No Wi-Fi or Apple passwords go here.
+// Use the speaker's exact Bonjour hostname (including .local) to follow DHCP changes.
+// Leave empty to use the fixed address below. No Wi-Fi or Apple passwords go here.
+#define DESK_HOMEPOD_HOSTNAME ""
 #define DESK_HOMEPOD_ADDRESS 192, 168, 1, 100
 #define DESK_WEATHER_LATITUDE "51.5074"
 #define DESK_WEATHER_LONGITUDE "-0.1278"
