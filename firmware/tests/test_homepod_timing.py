@@ -1,6 +1,7 @@
 """Exercise encrypted event ordering using the same pinned BearSSL as firmware."""
 from pathlib import Path
 import os
+import plistlib
 import subprocess
 
 root = Path(__file__).resolve().parents[2]
@@ -24,4 +25,8 @@ subprocess.run([
     *map(str, sources), str(root / "firmware/tests/homepod_timing_test.c"),
     "-o", str(output),
 ], check=True)
-subprocess.run([str(output)], check=True)
+wire = output.with_suffix(".bplist")
+subprocess.run([str(output), str(wire)], check=True)
+seed = plistlib.loads(wire.read_bytes())["streams"][0]["seed"]
+assert 0 <= seed <= (1 << 63) - 1, "Wire seed must match native unsigned salt value"
+print("Standard plist decoder agrees with positive stream seed")

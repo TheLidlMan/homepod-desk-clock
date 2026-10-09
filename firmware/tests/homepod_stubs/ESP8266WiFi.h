@@ -40,7 +40,7 @@ struct FakeESP {
 inline FakeESP ESP;
 class WiFiClient {
   struct Context {
-    bool closed = false, noDelay = false;
+    bool closed = false, noDelay = false, sync = true;
     Context() { ++retainedContexts; }
     ~Context() { --retainedContexts; }
   };
@@ -49,6 +49,8 @@ class WiFiClient {
   void setTimeout(unsigned) {}
   void setNoDelay(bool value) {if(context_)context_->noDelay=value;}
   bool getNoDelay() const {return context_&&context_->noDelay;}
+  void setSync(bool value) {if(context_)context_->sync=value;}
+  bool getSync() const {return context_&&context_->sync;}
   bool connect(const IPAddress &, uint16_t) {
     context_ = std::make_shared<Context>();
     return nextConnectSucceeds;

@@ -80,7 +80,7 @@ int main() {
     hap_io socket{};
     assert(factory.connect(factory.opaque, 7000, &socket));
     assert(factory.available(factory.opaque, &socket) > 0);
-    assert(adapter.channels[0].client.getNoDelay());
+    assert(adapter.channels[0].client.getNoDelay()&&!adapter.channels[0].client.getSync());
     assert(!factory.reserve(factory.opaque, 8192));
     factory.close(factory.opaque, &socket);
     assert(socket.opaque == nullptr);
@@ -129,12 +129,12 @@ int main() {
   assert(tx.write(tx.opaque,bytes,sizeof(bytes))==-1&&adapter.lastPhase==91);
   factory.close(factory.opaque,&tx);assert(retainedContexts==0);
   adapter.beginBudget(800);assert(factory.connect(factory.opaque,7000,&tx));
-  fakeTick+=20;assert(tx.write(tx.opaque,bytes,sizeof(bytes))==16&&lastFlushWait==780);
+  // A full copied write is valid even when its TCP ACK is delayed.
+  nextFlushSucceeds=false;lastFlushWait=0;fakeTick+=20;
+  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==16&&lastFlushWait==0);
+  assert(adapter.channels[0].client.connected());
   adapter.beginBudget(30000);
-  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==16&&lastFlushWait==800);
-  nextFlushSucceeds=false;
-  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==-1&&adapter.lastPhase==97);
-  assert(!adapter.channels[0].client.connected());
+  assert(tx.write(tx.opaque,bytes,sizeof(bytes))==16&&lastFlushWait==0);
   factory.close(factory.opaque,&tx);assert(retainedContexts==0);
   nextFlushSucceeds=true;
 }

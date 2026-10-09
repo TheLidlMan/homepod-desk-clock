@@ -53,15 +53,9 @@ static int send_bytes(void *opaque,const uint8_t *p,size_t n) {
         const uint8_t failure=channel->client.connected()?92:93;
         channel->client.abort();channel->owner->trace(failure);return -1;
     }
-    // Release copied TCP send buffers before the next large receive allocation.
-    // Keep copy semantics: the SDK's sync-write ignores ACK timeout failures.
-    const uint32_t elapsed=millis()-channel->owner->budgetStarted;
-    const uint32_t remaining=channel->owner->budgetMillis
-        ? (elapsed<channel->owner->budgetMillis?channel->owner->budgetMillis-elapsed:0):800;
-    const uint32_t wait=remaining<800?remaining:800;
-    if(!wait || !channel->client.flush(wait)){
-        channel->client.abort();channel->owner->trace(97);return -1;
-    }
+    // Full writes own copied TCP buffers; delivery/ACK may legitimately take
+    // longer than this poll. Let TCP retry while the protocol awaits its reply.
+    // Aborting an unacknowledged full write would discard a healthy session.
     return sent;
 }
 static bool secure_random(void *,uint8_t *p,size_t n){return os_get_random(p,n)==0;}
@@ -75,6 +69,7 @@ static bool connect_channel(void *opaque,uint16_t port,hap_io *io) {
             return false;
         }
         owner->channels[i].client.setNoDelay(true);
+        owner->channels[i].client.setSync(false); // TCP owns copies after write returns.
         owner->used[i]=true;
         *io={&owner->channels[i],receive,send_bytes,secure_random,trace_io,alive_io};return true;
     }

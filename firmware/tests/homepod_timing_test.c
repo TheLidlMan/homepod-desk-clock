@@ -247,7 +247,7 @@ static void resumable_record_tests(void){
  deadline_live=true;streams[2].expire_after_read=false;streams[2].used=total;
  assert(receive_poll(&o,102000)&&spooled_records==before+1&&o.data.rx==1&&r.error==0);
 }
-static bool fail_random;static uint8_t random_tick;
+static bool fail_random;static uint8_t random_tick;static const char *seed_wire_path;
 static bool test_random(void *opaque,uint8_t *p,size_t n){(void)opaque;if(fail_random)return false;while(n--)*p++=++random_tick;return true;}
 static void session_identity_tests(void){
  observer_receipt r;homepod_observer o=create(&r);o.control.io.random=test_random;
@@ -263,10 +263,12 @@ static void session_identity_tests(void){
  assert(bplist_dict(&b,&dict,"deviceID",&value)&&!memcmp(value.data,o.factory.controller_id,17));
  assert(bplist_dict(&b,&dict,"macAddress",&value)&&!memcmp(value.data,o.factory.controller_id,17));
  o.factory.controller_id="bad";assert(!fresh_setup(&o,body,sizeof(body),false));o.factory.controller_id=NULL;
- uint8_t data[sizeof(setup_data)];memcpy(data,setup_data,sizeof(data));
+ uint8_t data[sizeof(setup_data)];memcpy(data,setup_data,sizeof(data));random_tick=190;
  assert(fresh_setup(&o,data,sizeof(data),true)&&bplist_open(&b,data,sizeof(data))&&bplist_at(&b,b.top,&dict));
  assert(bplist_dict(&b,&dict,"streams",&value)&&bplist_index(&b,&value,0,&dict));
  assert(bplist_dict(&b,&dict,"seed",&value)&&be(value.data,8)==o.stream_seed);
+ assert(o.stream_seed<=INT64_MAX&&value.data[0]<128);
+ if(seed_wire_path){FILE *f=fopen(seed_wire_path,"wb");assert(f);assert(fwrite(data,1,sizeof(data),f)==sizeof(data));assert(!fclose(f));}
  assert(bplist_dict(&b,&dict,"clientTypeUUID",&value)&&!memcmp(value.data,"1910A70F-DBC0-4242-AF95-115DB30604E1",36));
  strcpy(o.session_id,"FEDCBA9876543210");o.active_remote=UINT32_MAX;
  assert(rtsp_send(&o,"SETUP","rtsp://127.0.0.1/424242",setup_event,sizeof(setup_event)));
@@ -274,7 +276,7 @@ static void session_identity_tests(void){
  assert(protobuf_send(&o,device_info,sizeof(device_info))&&streams[2].writes>0);
  fail_random=true;assert(!fresh_setup(&o,body,sizeof(body),false));assert(!protobuf_send(&o,device_info,sizeof(device_info)));fail_random=false;
 }
-int main(void){observer_receipt r;homepod_observer o=create(&r);
+int main(int argc,char **argv){seed_wire_path=argc==2?argv[1]:NULL;observer_receipt r;homepod_observer o=create(&r);
  /* A slow first feedback is fatal before any bootstrap response is available. */
  bool first=homepod_observer_poll(&o,100000);
 #ifdef CANDIDATE

@@ -248,6 +248,7 @@ static bool fresh_setup(homepod_observer *o,uint8_t *body,size_t len,bool data){
        !fresh_plist_uuid(o,&b,&dict,"channelID")||!fresh_plist_uuid(o,&b,&dict,"clientUUID")||
        !bplist_dict(&b,&dict,"seed",&value)||value.kind!=1||value.count!=3)return false;
     uint8_t seed[8];if(!random_bytes(o,seed,sizeof(seed)))return false;
+    seed[0]&=127; // Eight-byte plist integers are signed; keep salt and wire value equal.
     o->stream_seed=be(seed,8);memcpy((uint8_t*)value.data,seed,sizeof(seed));clear(seed,sizeof(seed));return true;
 }
 static bool rtsp_send(homepod_observer *o,const char *method,const char *uri,const uint8_t *body,size_t len){
