@@ -6,7 +6,7 @@ extern "C" {
 }
 struct HomePodWiFiAdapter {
     struct Channel { WiFiClient client;HomePodWiFiAdapter *owner=nullptr; } channels[3];
-    IPAddress address;
+    IPAddress address;char controllerId[18]={0};
     bool used[3]={false,false,false};
     uint32_t budgetStarted=0,budgetMillis=0;
     uint8_t lastPhase=0;

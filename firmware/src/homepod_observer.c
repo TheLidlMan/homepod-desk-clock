@@ -14,6 +14,10 @@ struct homepod_observer {
     homepod_factory factory;observer_receipt *receipt;channel control,event,data;
     uint8_t frame[640],out[640],*data_buffer;size_t data_used,data_expected;
     uint8_t data_header[32],event_header[512];size_t header_used,event_header_used;
+    /* DATA ciphertext survives owner deadlines; TX/control/event scratch is separate. */
+    uint8_t record_header[2],record_tag[16],record_small[64],*record_body;
+    size_t record_header_used,record_length,record_received;
+    uint32_t record_started,record_progress;bool record_owned;
     uint32_t event_remaining,event_cseq;bool event_rtsp;
     uint64_t pending_data_acks[8];uint8_t pending_data_ack_count;
     uint32_t cseq,last_feedback,data_wait_started,event_wait_started;uint64_t seq;
@@ -94,6 +98,97 @@ static int encrypted_read(homepod_observer *o,channel *c,uint8_t **plain,bool *a
     if(owned && n+16>o->receipt->peak_frame_allocation)o->receipt->peak_frame_allocation=n+16;
     return (int)n;
 }
+/* Only runtime DATA uses resumable reads. Pairing/control keep their bounded
+ * synchronous contracts. No plaintext or receive nonce escapes a partial tag. */
+static bool record_pending(const homepod_observer *o){return o->record_header_used!=0;}
+static void discard_data_record(homepod_observer *o){
+    if(o->record_owned&&o->record_body){clear(o->record_body,o->record_length+16);free(o->record_body);}
+    clear(o->record_small,sizeof(o->record_small));clear(o->record_tag,sizeof(o->record_tag));
+    o->record_body=NULL;o->record_owned=false;
+    o->record_header_used=o->record_length=o->record_received=0;
+}
+static int record_timeout(homepod_observer *o,uint32_t now){
+    if(!record_pending(o))return 0;
+    if(now-o->record_started>=30000){o->receipt->transport_error=-57;return -7;}
+    if(now-o->record_progress>=10000){o->receipt->transport_error=-56;return -7;}
+    return 0;
+}
+static int data_record_read(homepod_observer *o,uint32_t now,uint8_t **plain,bool *allocated){
+    *plain=NULL;*allocated=false;
+    while(o->record_header_used<2){
+        int ready=o->factory.available(o->factory.opaque,&o->data.io);
+        if(ready<0)return -8;
+        if(!ready)return record_timeout(o,now);
+        if(!live(&o->factory))return 0;
+        size_t want=2-o->record_header_used;if(want>(size_t)ready)want=(size_t)ready;
+        int k=o->data.io.read(o->data.io.opaque,o->record_header+o->record_header_used,want);
+        if(k<=0||(size_t)k>want)return -4;
+        if(!record_pending(o)){o->record_started=now;o->receipt->last_record_bytes=0;o->receipt->last_record_received=0;}
+        o->record_header_used+=(size_t)k;o->record_progress=now;
+    }
+    if(!o->record_length){
+        if(!live(&o->factory))return 0;
+        size_t n=o->record_header[0]|((size_t)o->record_header[1]<<8);
+        o->receipt->last_record_bytes=n;
+        if(!n||n>DATA_CAP||o->data.rx==UINT64_MAX)return -3;
+        o->record_length=n;
+        bool borrowed=o->data_buffer&&o->data_used<=o->data_expected&&n<=o->data_expected-o->data_used;
+        if(borrowed)o->record_body=o->data_buffer+o->data_used;
+        else if(n+16<=sizeof(o->record_small))o->record_body=o->record_small;
+        else{
+            /* Retained RAM must meet the general floor. The existing bounded
+             * ciphertext spool drains TCP before allocating when RAM overlaps. */
+            if(!reserve(&o->factory,n+16)){
+                phase(&o->factory,45);uint8_t *drained=NULL;
+                if(!o->factory.drain_record||!o->factory.drain_record(o->factory.opaque,&o->data.io,
+                    o->frame,sizeof(o->frame),n+16,&drained)||!drained){
+                    o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
+                    o->receipt->allocation_reject_reason=o->factory.drain_record?5:2;return -6;
+                }
+                o->record_body=drained;o->record_owned=true;o->record_received=n+16;
+                o->receipt->last_record_received=o->record_received;
+                memcpy(o->record_tag,drained+n,16);
+                if(!reserve(&o->factory,0)){
+                    o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
+                    o->receipt->allocation_reject_reason=4;discard_data_record(o);return -6;
+                }
+            }else{
+                o->record_body=malloc(n+16);o->record_owned=true;
+                if(!o->record_body){o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
+                    o->receipt->allocation_reject_reason=3;discard_data_record(o);return -6;}
+            }
+        }
+        if(o->record_owned&&n+16>o->receipt->peak_frame_allocation)o->receipt->peak_frame_allocation=n+16;
+    }
+    while(o->record_received<o->record_length+16){
+        int ready=o->factory.available(o->factory.opaque,&o->data.io);
+        if(ready<0)return -8;
+        if(!ready)return record_timeout(o,now);
+        if(!live(&o->factory))return 0;
+        size_t offset=o->record_received;
+        size_t want=offset<o->record_length?o->record_length-offset:o->record_length+16-offset;
+        uint8_t *target=offset<o->record_length?o->record_body+offset:o->record_tag+(offset-o->record_length);
+        if(want>(size_t)ready)want=(size_t)ready;
+        int k=o->data.io.read(o->data.io.opaque,target,want);
+        if(k<=0||(size_t)k>want)return -4;
+        o->record_received+=(size_t)k;o->record_progress=now;
+        o->receipt->last_record_received=o->record_received;
+    }
+    /* Authentication runs only after all bytes arrive, even if the final read
+     * consumed this poll's deadline. No further socket work is required here. */
+    uint8_t iv[12]={0},tag[16];for(unsigned i=0;i<8;++i)iv[4+i]=(uint8_t)(o->data.rx>>(8*i));
+    br_poly1305_ctmul_run(o->data.read_key,iv,o->record_body,o->record_length,
+        o->record_header,2,tag,br_chacha20_ct_run,0);
+    unsigned diff=0;for(unsigned i=0;i<16;++i)diff|=tag[i]^o->record_tag[i];
+    o->receipt->last_record_received=o->record_received;
+    if(diff){discard_data_record(o);return -5;}
+    int n=(int)o->record_length;++o->data.rx;
+    *plain=o->record_body;*allocated=o->record_owned;
+    /* Relinquish borrowed ownership before logical parsing can free its arena. */
+    o->record_body=NULL;o->record_owned=false;
+    o->record_header_used=o->record_length=o->record_received=0;
+    clear(o->record_tag,sizeof(o->record_tag));return n;
+}
 static void release_record(uint8_t *p,size_t n,bool allocated){if(allocated){clear(p,n+16);free(p);}}
 static bool response(homepod_observer *o,size_t *body_off,size_t *body_len){
     size_t used=0,need=0,header=0;
@@ -137,7 +232,18 @@ static bool fresh_plist_uuid(homepod_observer *o,const bplist *b,const bplist_ob
 static bool fresh_setup(homepod_observer *o,uint8_t *body,size_t len,bool data){
     bplist b;bplist_object dict,value;
     if(!bplist_open(&b,body,len)||!bplist_at(&b,b.top,&dict))return false;
-    if(!data)return fresh_plist_uuid(o,&b,&dict,"sessionUUID");
+    if(!data){
+        const char *id=o->factory.controller_id;
+        if(id){
+            if(strlen(id)!=17)return false;
+            const char *keys[]={"deviceID","macAddress"};
+            for(unsigned i=0;i<2;++i){
+                if(!bplist_dict(&b,&dict,keys[i],&value)||value.kind!=5||value.count!=17)return false;
+                memcpy((uint8_t*)value.data,id,17);
+            }
+        }
+        return fresh_plist_uuid(o,&b,&dict,"sessionUUID");
+    }
     if(!bplist_dict(&b,&dict,"streams",&value)||!bplist_index(&b,&value,0,&dict)||
        !fresh_plist_uuid(o,&b,&dict,"channelID")||!fresh_plist_uuid(o,&b,&dict,"clientUUID")||
        !bplist_dict(&b,&dict,"seed",&value)||value.kind!=1||value.count!=3)return false;
@@ -390,6 +496,11 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
     if(!o->feedback_started){o->last_feedback=now;o->feedback_started=true;}
     o->last_poll=now;if(o->art_pending&&now-o->art_started>=10000)o->art_pending=false;
     if(!live(&o->factory)){o->receipt->error=21;return false;}
+    if(record_pending(o)){
+        int ready=o->factory.available(o->factory.opaque,&o->data.io);
+        int timeout=(now-o->record_started>=30000 || !ready)?record_timeout(o,now):0;
+        if(timeout){o->receipt->error=110-timeout;return false;}
+    }
     /* A fresh poll gives the ACK its own deadline, with no large RX allocation
      * alive. Do not interleave another read/subscription/artwork write. */
     if(o->pending_data_ack_count){
@@ -436,16 +547,17 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
     }
     available=o->factory.available(o->factory.opaque,&o->data.io);
     if(available<0){o->receipt->error=10;return false;}
-    if(!available && (o->data_buffer || o->header_used) && now-o->data_wait_started>=10000){
+    if(!available && !record_pending(o) && (o->data_buffer || o->header_used) && now-o->data_wait_started>=10000){
         o->receipt->error=19;return false;
     }
-    if(available){
+    if(available || record_pending(o)){
         phase(&o->factory,40);
         /* Each authenticated record gets a fresh owner poll budget. A logical
          * frame can span records; never wait for its next record in a spent
          * budget. Partial frames remain bounded and expire after a stall. */
-        uint8_t *plain;bool owned;int n=encrypted_read(o,&o->data,&plain,&owned);
+        uint8_t *plain;bool owned;int n=data_record_read(o,now,&plain,&owned);
         if(n<0){o->receipt->error=110-n;return false;}
+        if(!n)return true;
         const uint8_t *source=plain;
         if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
         bool ok=data_chunk(o,source,n);release_record(plain,n,owned);
@@ -460,20 +572,21 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
     }
     return true;
 }
-bool homepod_observer_frame_pending(const homepod_observer *o){return o&&(o->data_buffer||o->header_used);}
+bool homepod_observer_frame_pending(const homepod_observer *o){return o&&(o->data_buffer||o->header_used||record_pending(o));}
 const mrp_metadata *homepod_observer_metadata(const homepod_observer *o){return o?&o->metadata:NULL;}
 const char *homepod_observer_item(const homepod_observer *o){return o?o->item:NULL;}
 void homepod_observer_close(homepod_observer *o){
     if(!o)return;
     channel *channels[]={&o->control,&o->event,&o->data};
     for(unsigned i=0;i<3;++i)if(channels[i]->open)o->factory.close(o->factory.opaque,&channels[i]->io);
+    discard_data_record(o);
     if(o->data_buffer){clear(o->data_buffer,o->data_expected);free(o->data_buffer);}
     clear(o,sizeof(*o));free(o);
 }
 
 bool homepod_observer_request_artwork(homepod_observer *o,uint16_t edge,
     bool (*sink)(void *,const uint8_t *,size_t,uint16_t,uint16_t),void *opaque){
-    if(!o||!sink||o->data_buffer||o->header_used||o->pending_data_ack_count||o->art_pending||!o->subscribed||!o->metadata.title[0]||edge<16||edge>118||!live(&o->factory))return false;
+    if(!o||!sink||homepod_observer_frame_pending(o)||o->pending_data_ack_count||o->art_pending||!o->subscribed||!o->metadata.title[0]||edge<16||edge>118||!live(&o->factory))return false;
     if(++o->art_counter==0)++o->art_counter;
     int id=snprintf(o->art_request,sizeof(o->art_request),"MiniArt-%08x",(unsigned)o->art_counter);
     if(id<=0||(size_t)id>=sizeof(o->art_request))return false;

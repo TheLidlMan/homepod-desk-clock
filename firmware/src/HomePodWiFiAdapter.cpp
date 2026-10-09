@@ -26,15 +26,19 @@ static void trace_factory(void *opaque,uint8_t phase){static_cast<HomePodWiFiAda
 static int receive(void *opaque,uint8_t *p,size_t n) {
     auto *channel=static_cast<HomePodWiFiAdapter::Channel *>(opaque);auto &client=channel->client;
     uint32_t start=millis();
-    while(!client.peekAvailable()) {
+    size_t amount=client.peekAvailable();
+    while(!amount) {
         // available()/connected() may yield in this SDK. Check heap first.
         if(ESP.getFreeHeap()<4096){channel->owner->trace(94);return -1;}
         if(!channel->owner->alive() || millis()-start>=800){channel->owner->trace(95);return -1;}
+        // peekAvailable sees only the first pbuf. available/read span its
+        // chain, including a zero-length head followed by queued bytes.
+        amount=client.available();if(amount)break;
         if(!client.connected()){channel->owner->trace(96);return -1;}
         delay(1);
     }
     if(!channel->owner->alive()){channel->owner->trace(95);return -1;}
-    size_t amount=client.peekAvailable();if(amount>n)amount=n;
+    if(amount>n)amount=n;
     // Observe the brief RX allocation peak before read() releases TCP pbufs.
     channel->owner->sampleHeap();
     const int result=client.read(p,amount);
@@ -147,5 +151,9 @@ static bool drain_record(void *opaque,hap_io *io,uint8_t *scratch,size_t capacit
 }
 homepod_factory HomePodWiFiAdapter::factory(){
     LittleFS.remove(kRecordSpool); // Discard a ciphertext fragment left by a power loss.
-    return {this,connect_channel,close_channel,available,reserve,trace_factory,alive_factory,reserve_record,drain_record};
+    // A local controller ID stays stable on this chip and differs across clocks.
+    const uint32_t chip=ESP.getChipId();
+    snprintf(controllerId,sizeof(controllerId),"02:00:00:%02X:%02X:%02X",
+        (unsigned)((chip>>16)&255),(unsigned)((chip>>8)&255),(unsigned)(chip&255));
+    return {this,connect_channel,close_channel,available,reserve,trace_factory,alive_factory,reserve_record,drain_record,controllerId};
 }

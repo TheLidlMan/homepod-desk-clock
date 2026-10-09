@@ -83,6 +83,18 @@ random data-stream seed is also used in the matching encryption salt. Stable
 device settings and the fixed client-type UUID are preserved. These corrections
 match the reference client; they do not establish the cause of every network
 closure. Extended hardware endurance remains necessary.
+Runtime DATA also retains a split encrypted length header, ciphertext and tag
+across owner polls. It reads only bytes currently available and authenticates
+only complete records. There is a ten-second no-progress deadline and a
+thirty-second absolute cap; renderer/weather/artwork work defers while a record
+is pending. Pairing, control/event reads and the low-memory filesystem fallback
+retain their bounded synchronous contracts. Receive diagnostics report the
+last declared record size and received ciphertext/tag bytes.
+The ESP8266 supplies a stable controller ID derived from its chip ID, so clocks
+do not share the template controller identity. Generic host factories can pass
+their own stable ID. The adapter handles queued bytes behind an empty first
+TCP buffer using the SDK's chain-aware available/read API; its regression
+reproduces the former 800ms deadline and confirms immediate progress.
 
 ## Build
 

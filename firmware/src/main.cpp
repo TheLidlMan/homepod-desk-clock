@@ -1605,6 +1605,9 @@ void sendApiStatus() {
   response.field("nativeHomePodPeakAllocation", samHomePod.diagnostics().peak_frame_allocation);
   response.field("nativeHomePodMinimumHeap", samHomePod.minimumHeap());
   response.field("nativeHomePodRejectedRecord", samHomePod.diagnostics().rejected_record_bytes);
+  response.field("nativeHomePodLastRecordBytes", samHomePod.diagnostics().last_record_bytes);
+  response.field("nativeHomePodLastRecordReceived", samHomePod.diagnostics().last_record_received);
+  response.field("nativeHomePodReceivePending", samHomePod.receiving());
   response.field("nativeHomePodPendingFrame", samHomePod.diagnostics().pending_frame_bytes);
   response.field("nativeHomePodAllocationRejectReason", samHomePod.diagnostics().allocation_reject_reason);
   response.field("nativeHomePodLargestDataFrame", samHomePod.diagnostics().max_frame);

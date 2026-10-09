@@ -70,6 +70,11 @@ int main() {
   assert(!adapter.resolveAddress("speaker.local"));
   assert(static_cast<uint32_t>(adapter.address)==lastAddress);
   auto factory = adapter.factory();
+  assert(std::strcmp(factory.controller_id,"02:00:00:11:22:33")==0);
+  fakeChipId=0x112234;HomePodWiFiAdapter second(IPAddress(192,0,2,101));
+  auto secondFactory=second.factory();
+  assert(std::strcmp(factory.controller_id,secondFactory.controller_id)!=0);
+  fakeChipId=0x112233;assert(std::strcmp(adapter.factory().controller_id,factory.controller_id)==0);
   // Close with unread data, then repeat: the next handshake must remain possible.
   for (unsigned retry = 0; retry < 100; ++retry) {
     hap_io socket{};
@@ -109,6 +114,11 @@ int main() {
   assert(rx.read(rx.opaque,bytes,sizeof(bytes))==16&&adapter.minimumHeap==3000);
   incomingAvailable=false;const uint32_t before=fakeTick;
   assert(rx.read(rx.opaque,bytes,sizeof(bytes))==-1&&fakeTick==before&&adapter.lastPhase==94);
+  heapLimit=18000;incomingAvailable=true;emptyReceiveHead=true;
+  // Total queued bytes must be readable even if the SDK first pbuf is empty.
+  assert(adapter.channels[0].client.peekAvailable()==0&&factory.available(factory.opaque,&rx)>0);
+  const uint32_t beforeChain=fakeTick;
+  assert(rx.read(rx.opaque,bytes,sizeof(bytes))==16&&fakeTick==beforeChain&&!emptyReceiveHead);
   factory.close(factory.opaque,&rx);incomingAvailable=true;
   heapLimit=18000;hap_io tx{};assert(factory.connect(factory.opaque,7000,&tx));
   nextWriteSucceeds=false;

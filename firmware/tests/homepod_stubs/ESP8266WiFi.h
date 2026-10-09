@@ -11,7 +11,8 @@ inline bool nextWriteSucceeds = true;
 inline bool nextFlushSucceeds=true;
 inline unsigned lastFlushWait=0;
 inline uint32_t heapLimit=18000,blockLimit=16000;
-inline bool incomingAvailable=true;
+inline bool incomingAvailable=true,emptyReceiveHead=false;
+inline uint32_t fakeChipId=0x112233;
 inline uint32_t millis() { return fakeTick; }
 inline void delay(unsigned ms) { fakeTick += ms; }
 struct IPAddress {
@@ -32,6 +33,7 @@ struct FakeWiFi {
 };
 inline FakeWiFi WiFi;
 struct FakeESP {
+  uint32_t getChipId() const {return fakeChipId;}
   uint32_t getFreeHeap() const { return heapLimit - retainedContexts * 6000; }
   uint32_t getMaxFreeBlockSize() const { return retainedContexts ? 4808 : blockLimit; }
 };
@@ -56,8 +58,8 @@ class WiFiClient {
   bool flush(unsigned wait) {lastFlushWait=wait;return connected()&&nextFlushSucceeds;}
   void abort() {if(context_)context_->closed=true;}
   int available() const { return context_ && incomingAvailable ? 6000 : 0; }
-  size_t peekAvailable() const { return context_ && incomingAvailable ? 6000 : 0; }
+  size_t peekAvailable() const { return context_ && incomingAvailable && !emptyReceiveHead ? 6000 : 0; }
   bool connected() const { return context_ && !context_->closed; }
-  int read(uint8_t *bytes, size_t size) { std::memset(bytes, 0, size); return size; }
+  int read(uint8_t *bytes, size_t size) { std::memset(bytes, 0, size); emptyReceiveHead=false;return size; }
   size_t write(const uint8_t *, size_t size) { return connected()&&nextWriteSucceeds?size:0; }
 };
