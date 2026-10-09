@@ -6,6 +6,11 @@
 #include "StandaloneWeather.h"
 
 int main() {
+  assert(clockNativePollAllowed(false, -1, false));
+  assert(!clockNativePollAllowed(false, 1, false));
+  assert(clockNativePollAllowed(false, 1, true));
+  assert(!clockNativePollAllowed(true, 1, true));
+
   for (uint8_t hour = 0; hour < 24; ++hour)
     assert(clockNightHour(hour) == (hour >= 23 || hour < 7));
   assert(clockBrightness(70, true) == 8);

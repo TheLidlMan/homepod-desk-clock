@@ -1,4 +1,6 @@
 #include "HomePodWiFiAdapter.h"
+#include <LittleFS.h>
+#include <cstdlib>
 #include "CrashDiagnostics.h"
 #include <WiFiUdp.h>
 extern "C" {
@@ -26,11 +28,12 @@ static int receive(void *opaque,uint8_t *p,size_t n) {
     uint32_t start=millis();
     while(!client.peekAvailable()) {
         // available()/connected() may yield in this SDK. Check heap first.
-        if(ESP.getFreeHeap()<4096)return -1;
-        if(!channel->owner->alive() || !client.connected() || millis()-start>=800)return -1;
+        if(ESP.getFreeHeap()<4096){channel->owner->trace(94);return -1;}
+        if(!channel->owner->alive() || millis()-start>=800){channel->owner->trace(95);return -1;}
+        if(!client.connected()){channel->owner->trace(96);return -1;}
         delay(1);
     }
-    if(!channel->owner->alive())return -1;
+    if(!channel->owner->alive()){channel->owner->trace(95);return -1;}
     size_t amount=client.peekAvailable();if(amount>n)amount=n;
     // Observe the brief RX allocation peak before read() releases TCP pbufs.
     channel->owner->sampleHeap();
@@ -42,8 +45,19 @@ static int send_bytes(void *opaque,const uint8_t *p,size_t n) {
     auto *channel=static_cast<HomePodWiFiAdapter::Channel *>(opaque);
     if(!channel->owner->alive()){channel->owner->trace(91);return -1;}
     const int sent=static_cast<int>(channel->client.write(p,n));
-    if(sent<0 || static_cast<size_t>(sent)!=n)
-        channel->owner->trace(channel->client.connected()?92:93);
+    if(sent<0 || static_cast<size_t>(sent)!=n){
+        const uint8_t failure=channel->client.connected()?92:93;
+        channel->client.abort();channel->owner->trace(failure);return -1;
+    }
+    // Release copied TCP send buffers before the next large receive allocation.
+    // Keep copy semantics: the SDK's sync-write ignores ACK timeout failures.
+    const uint32_t elapsed=millis()-channel->owner->budgetStarted;
+    const uint32_t remaining=channel->owner->budgetMillis
+        ? (elapsed<channel->owner->budgetMillis?channel->owner->budgetMillis-elapsed:0):800;
+    const uint32_t wait=remaining<800?remaining:800;
+    if(!wait || !channel->client.flush(wait)){
+        channel->client.abort();channel->owner->trace(97);return -1;
+    }
     return sent;
 }
 static bool secure_random(void *,uint8_t *p,size_t n){return os_get_random(p,n)==0;}
@@ -84,9 +98,54 @@ static int available(void *,hap_io *io) {
 #endif
     int n=channel->client.available();return n?n:channel->client.connected()?0:-1;
 }
-static bool reserve(void *,size_t n){return n<=SIZE_MAX-4096&&ESP.getFreeHeap()>=n+4096&&ESP.getMaxFreeBlockSize()>=n;}
+static bool reserve(void *opaque,size_t n){
+#if defined(SAM_HOMEPOD_SPOOL_TEST)
+    // Diagnostic image only: exercise ciphertext staging once with a live large frame.
+    auto *owner=static_cast<HomePodWiFiAdapter *>(opaque);static bool injected=false;
+    if(!injected && owner->lastPhase==40 && n>=6000){injected=true;return false;}
+#else
+    (void)opaque;
+#endif
+    return n<=SIZE_MAX-4096&&ESP.getFreeHeap()>=n+4096&&ESP.getMaxFreeBlockSize()>=n;
+}
 // RX records are immediately drained and freed before rendering or pairing.
 // Keep 2 KiB during the copy peak; receive() never waits below 4 KiB,
 // and the observer restores that margin before authentication/callbacks.
 static bool reserve_record(void *,size_t n){return n<=8192+16&&ESP.getFreeHeap()>=n+2048&&ESP.getMaxFreeBlockSize()>=n;}
-homepod_factory HomePodWiFiAdapter::factory(){return {this,connect_channel,close_channel,available,reserve,trace_factory,alive_factory,reserve_record};}
+static constexpr const char *kRecordSpool="/native-rx.tmp";
+// Ciphertext only: drain queued TCP pbufs before allocating the verified arena.
+static bool drain_record(void *opaque,hap_io *io,uint8_t *scratch,size_t capacity,size_t bytes,uint8_t **record){
+    auto *owner=static_cast<HomePodWiFiAdapter *>(opaque);*record=nullptr;
+    if(bytes>8192+16 || capacity<512 || !io || !io->read || !owner->alive() || ESP.getFreeHeap()<5120)return false;
+    const uint32_t started=millis();bool ok=true;size_t left=bytes;uint8_t *data=nullptr;
+    {
+        File file=LittleFS.open(kRecordSpool,"w");ok=static_cast<bool>(file);
+        while(ok && left){
+            if(!owner->alive() || ESP.getFreeHeap()<4096){ok=false;break;}
+            const size_t amount=left<512?left:512;
+            const int got=io->read(io->opaque,scratch,amount);
+            ok=got>0 && static_cast<size_t>(got)<=amount;
+            if(ok){ok=file.write(scratch,got)==static_cast<size_t>(got);left-=got;}
+            owner->sampleHeap();if(!owner->alive())ok=false;
+        }
+        file.close();
+    }
+    // Extra FS headroom is temporary; retain the normal receive safety floor.
+    ok=ok && owner->alive() && ESP.getFreeHeap()>=bytes+5120 && ESP.getMaxFreeBlockSize()>=bytes;
+    if(ok){data=static_cast<uint8_t *>(malloc(bytes));ok=data!=nullptr;}
+    if(ok){
+        File file=LittleFS.open(kRecordSpool,"r");
+        ok=file && file.size()==bytes && file.read(data,bytes)==bytes;
+        file.close();owner->sampleHeap();
+    }
+    if(!LittleFS.remove(kRecordSpool) && LittleFS.exists(kRecordSpool))ok=false;
+    const uint32_t elapsed=millis()-started;
+    if(elapsed>owner->recordSpoolMaxMillis)owner->recordSpoolMaxMillis=elapsed;
+    if(!owner->alive())ok=false;
+    if(!ok){if(data){memset(data,0,bytes);free(data);}return false;}
+    ++owner->recordSpools;*record=data;return true;
+}
+homepod_factory HomePodWiFiAdapter::factory(){
+    LittleFS.remove(kRecordSpool); // Discard a ciphertext fragment left by a power loss.
+    return {this,connect_channel,close_channel,available,reserve,trace_factory,alive_factory,reserve_record,drain_record};
+}

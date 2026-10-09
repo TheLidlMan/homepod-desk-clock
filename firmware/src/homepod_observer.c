@@ -16,8 +16,9 @@ struct homepod_observer {
     uint8_t data_header[32],event_header[512];size_t header_used,event_header_used;
     uint32_t event_remaining,event_cseq;bool event_rtsp;
     uint64_t pending_data_acks[8];uint8_t pending_data_ack_count;
-    uint32_t cseq,last_feedback;uint64_t seq;
-    bool subscribed,art_pending,feedback_started;uint32_t queue_location,art_counter,art_started,last_poll;uint16_t art_edge;
+    uint32_t cseq,last_feedback,data_wait_started,event_wait_started;uint64_t seq;
+    bool subscribed,art_pending,feedback_started,feedback_pending;uint32_t queue_location,art_counter,art_started,last_poll;uint16_t art_edge;
+    char session_id[17];uint32_t active_remote;uint64_t stream_seed;
     char art_requested_item[129];
     char art_request[25];
     bool (*art_sink)(void *,const uint8_t *,size_t,uint16_t,uint16_t);void *art_opaque;
@@ -59,18 +60,23 @@ static int encrypted_read(homepod_observer *o,channel *c,uint8_t **plain,bool *a
     bool pending=c==&o->data && o->data_buffer && o->data_used<=o->data_expected &&
         n<=o->data_expected-o->data_used;
     bool transient=dynamic && !pending && !reserve(&o->factory,n+16);
-    if(transient && !reserve_record(&o->factory,n+16)){
-        o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
-        o->receipt->allocation_reject_reason=2;return -6;
+    uint8_t *drained=NULL;
+    if(transient && (o->factory.drain_record || !reserve_record(&o->factory,n+16))){
+        phase(&o->factory,45);
+        if(!o->factory.drain_record || !o->factory.drain_record(o->factory.opaque,&c->io,
+                o->frame,sizeof(o->frame),n+16,&drained) || !drained){
+            o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;
+            o->receipt->allocation_reject_reason=o->factory.drain_record?5:2;return -6;
+        }
     }
-    uint8_t *data=pending?o->data_buffer+o->data_used:dynamic?malloc(n+16):f+2;
+    uint8_t *data=drained?drained:pending?o->data_buffer+o->data_used:dynamic?malloc(n+16):f+2;
     bool owned=dynamic && !pending;
     if(!data){o->receipt->rejected_record_bytes=n;o->receipt->pending_frame_bytes=o->data_expected;o->receipt->allocation_reject_reason=3;return -6;}
     uint8_t received_tag[16];
     if(pending){
         if(!all(&c->io,data,n,false)||!all(&c->io,received_tag,16,false))return -4;
     }else{
-        if(!all(&c->io,data,n+16,false)){if(owned){clear(data,n+16);free(data);}return -4;}
+        if(!drained && !all(&c->io,data,n+16,false)){if(owned){clear(data,n+16);free(data);}return -4;}
         memcpy(received_tag,data+n,16);
     }
     /* A lower RX margin is only a drain peak. Restore the normal budget
@@ -110,13 +116,47 @@ static bool response(homepod_observer *o,size_t *body_off,size_t *body_len){
         if(used>=header+need){*body_off=header;*body_len=need;return true;}
     }o->receipt->transport_error=-34;return false;
 }
-static bool rtsp(homepod_observer *o,const char *method,const char *uri,const uint8_t *body,size_t len,size_t *offset,size_t *bodylen){
+/* Fresh per-session IDs prevent a reconnect or second clock from reusing
+ * another transient controller session. Keep stable device settings intact. */
+static bool random_bytes(homepod_observer *o,uint8_t *p,size_t n){
+    return o->control.io.random && o->control.io.random(o->control.io.opaque,p,n);
+}
+static bool fresh_uuid(homepod_observer *o,uint8_t *out){
+    static const char hex[]="0123456789ABCDEF";uint8_t bytes[16];
+    if(!random_bytes(o,bytes,sizeof(bytes)))return false;
+    bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+    size_t at=0;for(unsigned i=0;i<16;++i){
+        if(i==4||i==6||i==8||i==10)out[at++]='-';
+        out[at++]=hex[bytes[i]>>4];out[at++]=hex[bytes[i]&15];
+    }clear(bytes,sizeof(bytes));return true;
+}
+static bool fresh_plist_uuid(homepod_observer *o,const bplist *b,const bplist_object *dict,const char *key){
+    bplist_object value;
+    return bplist_dict(b,dict,key,&value)&&value.kind==5&&value.count==36&&fresh_uuid(o,(uint8_t*)value.data);
+}
+static bool fresh_setup(homepod_observer *o,uint8_t *body,size_t len,bool data){
+    bplist b;bplist_object dict,value;
+    if(!bplist_open(&b,body,len)||!bplist_at(&b,b.top,&dict))return false;
+    if(!data)return fresh_plist_uuid(o,&b,&dict,"sessionUUID");
+    if(!bplist_dict(&b,&dict,"streams",&value)||!bplist_index(&b,&value,0,&dict)||
+       !fresh_plist_uuid(o,&b,&dict,"channelID")||!fresh_plist_uuid(o,&b,&dict,"clientUUID")||
+       !bplist_dict(&b,&dict,"seed",&value)||value.kind!=1||value.count!=3)return false;
+    uint8_t seed[8];if(!random_bytes(o,seed,sizeof(seed)))return false;
+    o->stream_seed=be(seed,8);memcpy((uint8_t*)value.data,seed,sizeof(seed));clear(seed,sizeof(seed));return true;
+}
+static bool rtsp_send(homepod_observer *o,const char *method,const char *uri,const uint8_t *body,size_t len){
     o->receipt->transport_error=0;o->receipt->control_status=0;
-    int n=snprintf((char*)o->out,sizeof(o->out),"%s %s RTSP/1.0\r\nCSeq: %u\r\nDACP-ID: 1234567890ABCDEF\r\nActive-Remote: 1\r\nClient-Instance: 1234567890ABCDEF\r\nUser-Agent: AirPlay/320.20\r\nContent-Type: application/x-apple-binary-plist\r\nContent-Length: %u\r\n\r\n",method,uri,++o->cseq,(unsigned)len);
+    char session_uri[40];
+    if(strcmp(uri,"/feedback")){snprintf(session_uri,sizeof(session_uri),"rtsp://127.0.0.1/%s",o->session_id);uri=session_uri;}
+    int n=snprintf((char*)o->out,sizeof(o->out),"%s %s RTSP/1.0\r\nCSeq: %u\r\nDACP-ID: %s\r\nActive-Remote: %u\r\nClient-Instance: %s\r\nUser-Agent: AirPlay/320.20\r\nContent-Type: application/x-apple-binary-plist\r\nContent-Length: %u\r\n\r\n",method,uri,++o->cseq,o->session_id,(unsigned)o->active_remote,o->session_id,(unsigned)len);
     if(n<=0 || (size_t)n+len>sizeof(o->out))return false;
     if(len)memcpy_P(o->out+n,body,len);
+    if((body==setup_event || body==setup_data)&&!fresh_setup(o,o->out+n,len,body==setup_data))return false;
     if(!encrypted_send(o,&o->control,o->out,n+len)){o->receipt->transport_error=-40;return false;}
-    return response(o,offset,bodylen);
+    return true;
+}
+static bool rtsp(homepod_observer *o,const char *method,const char *uri,const uint8_t *body,size_t len,size_t *offset,size_t *bodylen){
+    return rtsp_send(o,method,uri,body,len)&&response(o,offset,bodylen);
 }
 static bool root(const uint8_t *bytes,size_t n,bplist *b,bplist_object *r){return bplist_open(b,bytes,n)&&bplist_at(b,b->top,r);}
 static bool get_port(homepod_observer *o,size_t off,size_t n,bool data,uint16_t *port){
@@ -138,6 +178,14 @@ static bool protobuf_send(homepod_observer *o,const uint8_t *message,size_t n){
     uint8_t prefix[10];size_t k=varwrite(prefix,n);
     if(n+k>512)return false;
     uint8_t protobuf[512];memcpy(protobuf,prefix,k);memcpy_P(protobuf+k,message,n);
+    /* Template UUIDs are request/handler identifiers, not device settings. */
+    for(size_t i=k;i+36<=n+k;++i){
+        bool uuid=true;for(unsigned j=0;j<36;++j){uint8_t c=protobuf[i+j];
+            if(j==8||j==13||j==18||j==23){if(c!='-')uuid=false;}
+            else if(!((c>='0'&&c<='9')||(c>='A'&&c<='F')||(c>='a'&&c<='f')))uuid=false;
+        }
+        if(uuid){if(!fresh_uuid(o,protobuf+i))return false;i+=35;}
+    }
     size_t payload=bplist_wrap_data(o->out+32,sizeof(o->out)-32,protobuf,n+k);if(!payload)return false;
     memset(o->out,0,32);putbe(o->out,payload+32,4);memcpy(o->out+4,"sync",4);memcpy(o->out+16,"comm",4);putbe(o->out+20,++o->seq,8);
     return encrypted_send(o,&o->data,o->out,payload+32);
@@ -286,6 +334,7 @@ static bool event_chunk(homepod_observer *o,const uint8_t *p,size_t n){
     for(size_t i=0;i<count;++i){
         int length=snprintf((char*)o->out,sizeof(o->out),"%s 200 OK\r\nContent-Length: 0\r\nAudio-Latency: 0\r\nCSeq: %u\r\n\r\n",rtsp[i]?"RTSP/1.0":"HTTP/1.1",acknowledgements[i]);
         if(length<0 || !encrypted_send(o,&o->event,o->out,length))return false;
+        ++o->receipt->event_replies;
     }
     return true;
 }
@@ -302,8 +351,12 @@ homepod_observer *homepod_observer_open(homepod_factory *factory,observer_receip
     if(!live(factory)){r->error=21;factory->close(factory->opaque,&control.io);clear(K,64);return NULL;}
     r->paired=true;r->stage=2;
     homepod_observer *o=reserve(factory,sizeof(homepod_observer))?calloc(1,sizeof(*o)):NULL;if(!o){r->error=3;factory->close(factory->opaque,&control.io);clear(K,64);return NULL;}
-    o->factory=*factory;o->receipt=r;o->control=control;o->seq=0x100000001;
-    size_t off,n;uint16_t port;
+    o->factory=*factory;o->receipt=r;o->control=control;
+    uint8_t identity[12];
+    if(!random_bytes(o,identity,sizeof(identity))){r->error=23;homepod_observer_close(o);clear(K,64);return NULL;}
+    for(unsigned i=0;i<8;++i)snprintf(o->session_id+i*2,3,"%02X",identity[i]);
+    o->active_remote=(uint32_t)be(identity+8,4);o->seq=be(identity,8)&UINT64_C(0x7fffffffffffffff);clear(identity,sizeof(identity));
+    size_t off,n;uint16_t port;char stream_salt[36];
     phase(factory,31);
     if(!rtsp(o,"SETUP","rtsp://127.0.0.1/424242",setup_event,sizeof(setup_event),&off,&n)||!get_port(o,off,n,false,&port)){r->error=4;goto fail;}
     phase(factory,32);
@@ -316,7 +369,8 @@ homepod_observer *homepod_observer_open(homepod_factory *factory,observer_receip
     r->stage=4;
     if(!rtsp(o,"SETUP","rtsp://127.0.0.1/424242",setup_data,sizeof(setup_data),&off,&n)||!get_port(o,off,n,true,&port)){r->error=7;goto fail;}
     phase(factory,36);
-    if(!live(factory)||!open_channel(o,&o->data,port,K,"DataStream-Salt1311768467284833366","DataStream-Output-Encryption-Key","DataStream-Input-Encryption-Key")){r->error=8;goto fail;}
+    snprintf(stream_salt,sizeof(stream_salt),"DataStream-Salt%llu",(unsigned long long)o->stream_seed);
+    if(!live(factory)||!open_channel(o,&o->data,port,K,stream_salt,"DataStream-Output-Encryption-Key","DataStream-Input-Encryption-Key")){r->error=8;goto fail;}
     clear(K,64);r->stage=5;
     phase(factory,37);
     if(!protobuf_send(o,device_info,sizeof(device_info))){r->error=9;goto fail;}
@@ -341,50 +395,72 @@ bool homepod_observer_poll(homepod_observer *o,uint32_t now){
     if(o->pending_data_ack_count){
         return homepod_observer_acknowledge(o);
     }
-    int available=o->factory.available(o->factory.opaque,&o->data.io);
-    if(available<0){o->receipt->error=10;return false;}
-    if(available || o->data_buffer || o->header_used){
-        phase(&o->factory,40);
-        /* Consume one complete bounded data frame before returning to a renderer.
-         * On timeout/failure the owner must close the observer and show the clock.
-         * Authentication happens per1024-byte record; callbacks see only verified bytes. */
-        for(unsigned record=0;record<10;++record){
-            uint8_t *plain;bool owned;int n=encrypted_read(o,&o->data,&plain,&owned);
-            if(n<0){o->receipt->error=110-n;return false;}
-            /* Small records use the shared RX/TX frame; protect their remainder
-             * while ACKs are emitted. Large records already own a separate arena. */
-            const uint8_t *source=plain;
-            if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
-            bool ok=data_chunk(o,source,n);release_record(plain,n,owned);
-            if(!ok)return false;
-            if(o->pending_data_ack_count)return true;
-            if(!o->data_buffer && !o->header_used)break;
-            if(record==9){o->receipt->error=19;return false;}
+    /* Runtime feedback must not wait inside a nearly spent receive budget.
+     * There is one outstanding request; read its reply on a fresh poll only
+     * after bytes arrive, while data/event processing stays responsive. */
+    if(o->feedback_pending){
+        int ready=o->factory.available(o->factory.opaque,&o->control.io);
+        if(ready>0){size_t off,n;
+            phase(&o->factory,43);
+            if(!response(o,&off,&n)){o->receipt->error=17;return false;}
+            o->feedback_pending=false;return true;
         }
+        if(ready<0){o->receipt->error=17;o->receipt->transport_error=-55;return false;}
+        if(now-o->last_feedback>=10000){o->receipt->error=17;o->receipt->transport_error=-2;return false;}
+    }else if(!o->data_buffer && !o->header_used && !o->event_remaining && !o->event_header_used &&
+             now-o->last_feedback>=2000 && o->factory.available(o->factory.opaque,&o->event.io)==0){
+        phase(&o->factory,43);
+        if(!rtsp_send(o,"POST","/feedback",NULL,0)){o->receipt->error=17;return false;}
+        o->feedback_pending=true;o->last_feedback=now;return true;
+    }
+    /* Reverse-channel requests must not wait behind a DATA burst. Each sync
+     * DATA record queues an ACK and returns, so servicing events afterwards
+     * could starve the peer until it closed the session. Never wait for an
+     * absent event continuation while DATA is ready. */
+    int available=o->factory.available(o->factory.opaque,&o->event.io);
+    if(available<0){o->receipt->error=14;return false;}
+    if(!available && (o->event_remaining || o->event_header_used) && now-o->event_wait_started>=10000){
+        o->receipt->error=15;return false;
+    }
+    if(available){
+        phase(&o->factory,42);
+        uint8_t *plain;bool owned;int n=encrypted_read(o,&o->event,&plain,&owned);
+        if(n<0){o->receipt->error=15;return false;}
+        ++o->receipt->event_records;
+        const uint8_t *source=plain;
+        if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
+        bool ok=event_chunk(o,source,n);release_record(plain,n,owned);
+        if(!ok){o->receipt->error=16;return false;}
+        if(o->event_remaining || o->event_header_used)o->event_wait_started=now;
+        return true; // Give DATA its own fresh receive budget on the next poll.
+    }
+    available=o->factory.available(o->factory.opaque,&o->data.io);
+    if(available<0){o->receipt->error=10;return false;}
+    if(!available && (o->data_buffer || o->header_used) && now-o->data_wait_started>=10000){
+        o->receipt->error=19;return false;
+    }
+    if(available){
+        phase(&o->factory,40);
+        /* Each authenticated record gets a fresh owner poll budget. A logical
+         * frame can span records; never wait for its next record in a spent
+         * budget. Partial frames remain bounded and expire after a stall. */
+        uint8_t *plain;bool owned;int n=encrypted_read(o,&o->data,&plain,&owned);
+        if(n<0){o->receipt->error=110-n;return false;}
+        const uint8_t *source=plain;
+        if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
+        bool ok=data_chunk(o,source,n);release_record(plain,n,owned);
+        if(!ok)return false;
+        if(o->data_buffer || o->header_used)o->data_wait_started=now;
+        if(o->pending_data_ack_count || o->data_buffer || o->header_used)return true;
     }
     if(o->receipt->stage==7 && !o->subscribed){
         phase(&o->factory,41);
         if(!protobuf_send(o,connection_state,sizeof(connection_state)) || !protobuf_send(o,updates,sizeof(updates))){o->receipt->error=9;return false;}
         o->subscribed=true;o->receipt->stage=8;
     }
-    available=o->factory.available(o->factory.opaque,&o->event.io);
-    if(available<0){o->receipt->error=14;return false;}
-    if(available || o->event_remaining || o->event_header_used){
-        phase(&o->factory,42);
-        uint8_t *plain;bool owned;int n=encrypted_read(o,&o->event,&plain,&owned);
-        if(n<0){o->receipt->error=15;return false;}
-        const uint8_t *source=plain;
-        if(plain==o->frame+2){memcpy(o->out,plain,n);source=o->out;}
-        bool ok=event_chunk(o,source,n);release_record(plain,n,owned);
-        if(!ok){o->receipt->error=16;return false;}
-    }
-    if(!o->event_remaining && !o->event_header_used && now-o->last_feedback>=2000){size_t off,n;
-        phase(&o->factory,43);
-        if(!rtsp(o,"POST","/feedback",NULL,0,&off,&n)){o->receipt->error=17;return false;}
-        o->last_feedback=now;
-    }
     return true;
 }
+bool homepod_observer_frame_pending(const homepod_observer *o){return o&&(o->data_buffer||o->header_used);}
 const mrp_metadata *homepod_observer_metadata(const homepod_observer *o){return o?&o->metadata:NULL;}
 const char *homepod_observer_item(const homepod_observer *o){return o?o->item:NULL;}
 void homepod_observer_close(homepod_observer *o){
@@ -397,7 +473,7 @@ void homepod_observer_close(homepod_observer *o){
 
 bool homepod_observer_request_artwork(homepod_observer *o,uint16_t edge,
     bool (*sink)(void *,const uint8_t *,size_t,uint16_t,uint16_t),void *opaque){
-    if(!o||!sink||o->pending_data_ack_count||o->art_pending||!o->subscribed||!o->metadata.title[0]||edge<16||edge>118||!live(&o->factory))return false;
+    if(!o||!sink||o->data_buffer||o->header_used||o->pending_data_ack_count||o->art_pending||!o->subscribed||!o->metadata.title[0]||edge<16||edge>118||!live(&o->factory))return false;
     if(++o->art_counter==0)++o->art_counter;
     int id=snprintf(o->art_request,sizeof(o->art_request),"MiniArt-%08x",(unsigned)o->art_counter);
     if(id<=0||(size_t)id>=sizeof(o->art_request))return false;

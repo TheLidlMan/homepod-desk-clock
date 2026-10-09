@@ -15,9 +15,12 @@ class SamHomePod {
  public:
   ~SamHomePod() { disconnect(); }
   bool connected() const { return observer_ != nullptr; }
+  bool receiving() const { return homepod_observer_frame_pending(observer_); }
   const observer_receipt &diagnostics() const { return receipt_; }
   uint32_t pairingMillis() const { return pairingMillis_; }
   uint8_t phase() const { return transport_.lastPhase; }
+  uint32_t recordSpools() const {return transport_.recordSpools;}
+  uint32_t recordSpoolMaxMillis() const {return transport_.recordSpoolMaxMillis;}
   uint32_t minimumHeap() const {
     const uint32_t value = minimumHeap_ && minimumHeap_ < transport_.minimumHeap ? minimumHeap_ : transport_.minimumHeap;
     return value == UINT32_MAX ? 0 : value;
@@ -75,7 +78,7 @@ class SamHomePod {
     clearRuntimeCheckpoint();
     sampleHeap();
     transport_.beginBudget(800);
-    artwork_.update(observer_, mayConnect);
+    artwork_.update(observer_, mayConnect && !receiving());
     const mrp_metadata *music = homepod_observer_metadata(observer_);
     if (!music) return;
     const uint32_t now = millis();

@@ -21,3 +21,8 @@ inline bool clockMusicAvailable(uint32_t now, uint32_t updated, bool received,
                                 bool playing) {
   return playing && !clockMusicExpired(now, updated, received);
 }
+
+// A queued page cannot block the receiver that must finish before rendering.
+inline bool clockNativePollAllowed(bool transition, int pendingPage, bool receiving) {
+  return !transition && (pendingPage < 0 || receiving);
+}

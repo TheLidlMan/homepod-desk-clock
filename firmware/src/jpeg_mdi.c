@@ -5,10 +5,11 @@
 #define STRIPE_ROWS 16
 typedef struct {
  JDEC decoder;jpeg_mdi_io io;jpeg_mdi_receipt *receipt;
- uint16_t stripe[MAX_EDGE*STRIPE_ROWS];uint16_t next_x,band_top,band_height;
+ uint16_t next_x,band_top,band_height;
  union {uint32_t align;uint8_t bytes[TJPGD_WORKSPACE_SIZE];} pool;
+ uint16_t stripe[];
 } workspace;
-size_t jpeg_mdi_workspace_size(void){return sizeof(workspace);}
+size_t jpeg_mdi_workspace_size(uint16_t edge){return edge>=16&&edge<=MAX_EDGE?sizeof(workspace)+(size_t)edge*STRIPE_ROWS*sizeof(uint16_t):0;}
 static bool alive(workspace *w){return !w->io.alive||w->io.alive(w->io.opaque);}
 static size_t input(JDEC *j,uint8_t *bytes,size_t n){
  workspace *w=j->device;if(!alive(w))return 0;
@@ -41,7 +42,7 @@ static int output(JDEC *j,void *bitmap,JRECT *r){
 bool jpeg_mdi_convert(void *memory,const jpeg_mdi_io *io,uint16_t edge,jpeg_mdi_receipt *r){
  if(r)memset(r,0,sizeof(*r));
  if(!memory||!io||!io->read||!io->write||!r||edge<16||edge>MAX_EDGE){if(r)r->error=JDR_PAR;return false;}
- workspace *w=memory;memset(w,0,sizeof(*w));memset(r,0,sizeof(*r));w->io=*io;w->receipt=r;
+ workspace *w=memory;memset(w,0,jpeg_mdi_workspace_size(edge));memset(r,0,sizeof(*r));w->io=*io;w->receipt=r;
  JRESULT result=jd_prepare(&w->decoder,input,w->pool.bytes,sizeof(w->pool.bytes),w);
  r->error=result;if(result!=JDR_OK)return false;
  r->width=w->decoder.width;r->height=w->decoder.height;r->pool_used=sizeof(w->pool.bytes)-w->decoder.sz_pool;

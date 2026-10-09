@@ -45,6 +45,44 @@ Nagle buffering so small acknowledgements are sent promptly. The queue holds at 
 eight sequences per authenticated record; larger bursts fail safely. Regression
 checks reproduce the prior error 13 / -52 with a constrained transmit allocator
 and cover expired receive deadlines, queue limits and malformed lengths.
+Runtime heartbeat replies also wait asynchronously: one outstanding request,
+continued music/event processing, and a ten-second deadline. Replies are read
+only when available, in a fresh poll. This avoids disconnecting on a delayed
+reply after the former receive budget has already been used. Tests reproduce
+the prior error 17 / -2 and cover delayed replies, expiry, event ordering and
+monotonic timer wrap. Logical frames split across authenticated packets use
+separate polls, with a ten-second stall deadline and artwork requests deferred
+until reassembly finishes. TCP sends explicitly flush with the remaining
+operation budget as an inactivity timeout (capped at 800 ms) before receiving
+the next large frame; failed sends abort the socket and reconnect. The pinned
+SDK abort cleanup adds a default 300 ms inactivity wait. Copy semantics are retained to preserve buffer
+lifetimes on SDK acknowledgement timeouts. Receive diagnostics distinguish
+low-memory waits (94), deadlines (95), closed SDK sockets (96) and failed flushes (97).
+If a full receive arena cannot fit safely, the ESP8266 drains ciphertext plus
+its authentication tag through one bounded temporary file using the existing
+frame as scratch. It then closes the writer, restores normal RAM headroom,
+loads the exact ciphertext length and deletes the file before tag verification.
+Failed I/O, timeouts, insufficient post-drain RAM and invalid tags fail closed.
+The temporary file is also removed at the next connection after a power loss.
+Aggregate spool count/maximum latency diagnostics make the fallback measurable.
+The optional `SAM_HOMEPOD_SPOOL_TEST` diagnostic build forces this path once
+for a live packet of at least 6KB; normal builds leave it disabled.
+The disposable parsed page definition is released before native network work.
+Compiled scenes own their text/assets; the definition reloads on the next
+value recompilation. The JPEG decoder stripe is sized to the requested cover
+width, saving 1,216 bytes for 80px compared with the prior 118px reserve. Exact
+allocation sanitizer tests decode synthetic 17/80/118px covers and reject
+mismatched dimensions. While a split logical frame is pending, weather, artwork
+conversion and rendering defer until reassembly completes or expires.
+
+Reverse event requests are serviced before DATA bursts; missing continuations
+wait without blocking DATA and expire after ten seconds. Aggregate event
+record/reply counters help distinguish that path from other disconnects.
+Reconnects create fresh RTSP, SETUP and MRP request/handler identifiers. The
+random data-stream seed is also used in the matching encryption salt. Stable
+device settings and the fixed client-type UUID are preserved. These corrections
+match the reference client; they do not establish the cause of every network
+closure. Extended hardware endurance remains necessary.
 
 ## Build
 
@@ -56,7 +94,7 @@ python3 -m venv .venv
 npm --prefix firmware/web ci
 cp firmware/src/ClockConfig.example.h firmware/src/ClockConfig.h
 # Edit ClockConfig.h: HomePod hostname/address, weather location and night hours.
-PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.5
+PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.6
 PATH="$PWD/.venv/bin:$PATH" make test-native
 ```
 

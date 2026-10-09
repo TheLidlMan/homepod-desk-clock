@@ -112,9 +112,9 @@ class SamHomePodArtwork {
     return millis() - static_cast<Conversion *>(opaque)->started < 3000;
   }
   void convert() {
-    const size_t bytes = jpeg_mdi_workspace_size();
+    const size_t bytes = jpeg_mdi_workspace_size(edge_);
     // Decoder workspace is heap-owned; leave space for FS and network callbacks.
-    if (ESP.getFreeHeap() < bytes + 5000 || ESP.getMaxFreeBlockSize() < bytes) {
+    if (!bytes || ESP.getFreeHeap() < bytes + 5000 || ESP.getMaxFreeBlockSize() < bytes) {
       error_ = 203;
       return;
     }

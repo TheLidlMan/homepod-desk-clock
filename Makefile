@@ -70,6 +70,7 @@ schema-check:
 	python3 tests/test_schema_compactor.py
 
 test-native:
+	python3 firmware/tests/test_jpeg_workspace.py
 	@test -d firmware/.pio/libdeps/sdpro/ArduinoJson/src || { echo "run make build first to install ArduinoJson"; exit 1; }
 	@mkdir -p .cache/tests
 	python3 firmware/tests/test_homepod_timing.py

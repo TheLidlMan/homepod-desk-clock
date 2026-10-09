@@ -11,6 +11,7 @@ struct HomePodWiFiAdapter {
     uint32_t budgetStarted=0,budgetMillis=0;
     uint8_t lastPhase=0;
     uint32_t minimumHeap=UINT32_MAX;
+    uint32_t recordSpools=0,recordSpoolMaxMillis=0;
     void sampleHeap(){const uint32_t heap=ESP.getFreeHeap();if(heap<minimumHeap)minimumHeap=heap;}
     explicit HomePodWiFiAdapter(const IPAddress &ip):address(ip) {for(auto &channel:channels)channel.owner=this;}
     void beginBudget(uint32_t amount) {budgetStarted=millis();budgetMillis=amount;}

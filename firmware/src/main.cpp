@@ -666,9 +666,12 @@ void updateStandaloneClock() {
     snprintf(date, sizeof(date), "%s, %d %s", days[local.tm_wday], local.tm_mday, months[local.tm_mon]);
     setClockValue("date", date);
   }
-  if (!pageTransitionActive && pendingPageIndex < 0)
+  if (!pageTransitionActive && pendingPageIndex < 0 && !samHomePod.receiving())
     standaloneWeather.update(setClockValue);
-  if (!pageTransitionActive && pendingPageIndex < 0) {
+  if (clockNativePollAllowed(pageTransitionActive, pendingPageIndex, samHomePod.receiving())) {
+    // Compiled scenes own their strings; release the disposable JSON tree
+    // after all render views have ended, before large HomePod allocations.
+    pageDefinition.clear();
     samHomePod.update([](const char *name, const char *text) {
       if (strcmp(name, "music_playing") == 0) {
         lastMusicUpdateAt = millis();
@@ -1589,11 +1592,15 @@ void sendApiStatus() {
   response.field("nativeHomePodConnected", samHomePod.connected());
   response.field("nativeHomePodPairingMs", samHomePod.pairingMillis());
   response.field("nativeHomePodPhase", samHomePod.phase());
+  response.field("nativeHomePodRecordSpools", samHomePod.recordSpools());
+  response.field("nativeHomePodSpoolMaxMs", samHomePod.recordSpoolMaxMillis());
   response.field("nativeHomePodStage", samHomePod.diagnostics().stage);
   response.field("nativeHomePodError", samHomePod.diagnostics().error);
   response.field("nativeHomePodTransportError", samHomePod.diagnostics().transport_error);
   response.field("nativeHomePodControlStatus", samHomePod.diagnostics().control_status);
   response.field("nativeHomePodMessages", samHomePod.diagnostics().messages);
+  response.field("nativeHomePodEventRecords", samHomePod.diagnostics().event_records);
+  response.field("nativeHomePodEventReplies", samHomePod.diagnostics().event_replies);
   response.field("nativeHomePodMetadata", samHomePod.diagnostics().metadata_present);
   response.field("nativeHomePodPeakAllocation", samHomePod.diagnostics().peak_frame_allocation);
   response.field("nativeHomePodMinimumHeap", samHomePod.minimumHeap());
@@ -3232,6 +3239,8 @@ void loop() {
   // Rendering here releases the HTTP handler's stack and request buffers
   // first. Never compile a scene or run an animation inside a page request.
   updateStandaloneClock();
+  // Finish bounded native reassembly before a compositor borrows its heap.
+  if (samHomePod.receiving()) {recordFreeHeap();delay(2);return;}
   updateFirmwareNotificationReminder();
   updateNotifications();
   if (pendingPageIndex >= 0 && displayRefresh.ready(millis())) {

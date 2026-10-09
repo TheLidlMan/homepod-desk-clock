@@ -16,6 +16,6 @@ jobs:
       - run: python3 -m venv .venv && .venv/bin/pip install -r requirements-build.txt
       - run: npm --prefix firmware/web ci
       - run: cp firmware/src/ClockConfig.example.h firmware/src/ClockConfig.h
-      - run: PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.5
+      - run: PATH="$PWD/.venv/bin:$PATH" make size FIRMWARE_VERSION=0.3.0-desk.6
       - run: PATH="$PWD/.venv/bin:$PATH" make test-native
       - run: python3 scripts/test_install_dashboard.py

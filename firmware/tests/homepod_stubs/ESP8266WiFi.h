@@ -8,6 +8,8 @@ inline uint32_t fakeTick = 0;
 inline unsigned retainedContexts = 0;
 inline bool nextConnectSucceeds = true;
 inline bool nextWriteSucceeds = true;
+inline bool nextFlushSucceeds=true;
+inline unsigned lastFlushWait=0;
 inline uint32_t heapLimit=18000,blockLimit=16000;
 inline bool incomingAvailable=true;
 inline uint32_t millis() { return fakeTick; }
@@ -51,6 +53,8 @@ class WiFiClient {
   }
   // Matches the pinned SDK: stop closes TCP but retains ClientContext/RX buffers.
   bool stop(unsigned) { if (context_) context_->closed = true; return true; }
+  bool flush(unsigned wait) {lastFlushWait=wait;return connected()&&nextFlushSucceeds;}
+  void abort() {if(context_)context_->closed=true;}
   int available() const { return context_ && incomingAvailable ? 6000 : 0; }
   size_t peekAvailable() const { return context_ && incomingAvailable ? 6000 : 0; }
   bool connected() const { return context_ && !context_->closed; }
