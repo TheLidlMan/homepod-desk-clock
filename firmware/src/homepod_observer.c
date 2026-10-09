@@ -123,6 +123,7 @@ static int data_record_read(homepod_observer *o,uint32_t now,uint8_t **plain,boo
         size_t want=2-o->record_header_used;if(want>(size_t)ready)want=(size_t)ready;
         int k=o->data.io.read(o->data.io.opaque,o->record_header+o->record_header_used,want);
         if(k<=0||(size_t)k>want)return -4;
+        if(!o->receipt->first_data_received){o->receipt->first_data_received=true;o->receipt->first_data_at=now;}
         if(!record_pending(o)){o->record_started=now;o->receipt->last_record_bytes=0;o->receipt->last_record_received=0;}
         o->record_header_used+=(size_t)k;o->record_progress=now;
     }
@@ -307,11 +308,40 @@ static void merge(mrp_metadata *a,const mrp_metadata *b){
     if(b->present&MRP_STATE)a->playback_state=b->playback_state;
     a->present|=b->present;
 }
+/* Aggregate diagnostics only: skip nested bytes so an embedded field4 does
+ * not look like the ProtocolMessage's numeric errorCode. Missing means NoError;
+ * UINT32_MAX denotes malformed diagnostic framing, never a playback command. */
+static uint32_t protocol_error_code(const uint8_t *p,size_t n){
+    uint32_t code=0;
+    while(n){
+        uint64_t key,value;size_t used;
+        if(!varread(p,n,&key,&used)||!(key>>3))return UINT32_MAX;
+        p+=used;n-=used;
+        switch(key&7){
+        case 0:
+            if(!varread(p,n,&value,&used))return UINT32_MAX;
+            if((key>>3)==4){if(value>UINT32_MAX)return UINT32_MAX;code=(uint32_t)value;}
+            break;
+        case 1:used=8;break;
+        case 2:
+            if(!varread(p,n,&value,&used)||value>n-used)return UINT32_MAX;
+            p+=used;n-=used;used=(size_t)value;break;
+        case 5:used=4;break;
+        default:return UINT32_MAX;
+        }
+        if(used>n)return UINT32_MAX;
+        p+=used;n-=used;
+    }
+    return code;
+}
 static void handle(homepod_observer *o,const uint8_t *p,size_t n){
     o->receipt->messages++;if(n>o->receipt->max_protobuf)o->receipt->max_protobuf=n;
     /* pyatv waits for DEVICE_INFO reply before subscribing. Mark the reply here
      * and emit subscription only after the incoming data frame has been drained. */
-    uint32_t type;if(mrp_protocol_type(p,n,&type)&&type==15)o->receipt->stage=7;
+    uint32_t type=0;bool typed=mrp_protocol_type(p,n,&type);
+    o->receipt->last_protobuf_type=typed?type:0;
+    o->receipt->last_protobuf_error_code=protocol_error_code(p,n);
+    if(typed&&type==15)o->receipt->stage=7;
     mrp_art_view art;
     if(mrp_art_info(p,n,&art)){
         if(art.identifier_size>=8&&!memcmp(art.identifier,"MiniArt-",8)){

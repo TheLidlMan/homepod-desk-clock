@@ -18,6 +18,8 @@ typedef struct {
 typedef struct homepod_observer homepod_observer;
 typedef struct {
     uint32_t messages,state_updates,event_records,event_replies;
+    uint32_t last_protobuf_type,last_protobuf_error_code,first_data_at;
+    bool first_data_received; /* First DATA byte observed by poll, monotonic millis. */
     size_t max_frame,max_protobuf,context_bytes,peak_frame_allocation;
     int stage,error,transport_error,control_status;
     size_t last_record_bytes,last_record_received; /* Ciphertext/tag progress, no payload. */

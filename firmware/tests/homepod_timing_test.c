@@ -247,6 +247,31 @@ static void resumable_record_tests(void){
  deadline_live=true;streams[2].expire_after_read=false;streams[2].used=total;
  assert(receive_poll(&o,102000)&&spooled_records==before+1&&o.data.rx==1&&r.error==0);
 }
+static void aggregate_diagnostic_tests(void){
+ observer_receipt r;homepod_observer o=create(&r);
+ /* A nested string containing tag4 is not a top-level error. */
+ const uint8_t reply[]={8,15,18,2,32,23,32,0};
+ handle(&o,reply,sizeof(reply));
+ assert(r.messages==1&&r.last_protobuf_type==15&&r.last_protobuf_error_code==0);
+ const uint8_t error[]={8,15,32,116};
+ handle(&o,error,sizeof(error));
+ assert(r.messages==2&&r.last_protobuf_type==15&&r.last_protobuf_error_code==116);
+ const uint8_t absent[]={8,15};handle(&o,absent,sizeof(absent));
+ assert(r.last_protobuf_error_code==0);
+ const uint8_t fixed[]={8,15,41,0,0,0,0,0,0,0,0,53,0,0,0,0,32,23};
+ handle(&o,fixed,sizeof(fixed));assert(r.last_protobuf_error_code==23);
+ const uint8_t truncated[]={8,15,32,128};handle(&o,truncated,sizeof(truncated));
+ assert(r.last_protobuf_type==0&&r.last_protobuf_error_code==UINT32_MAX);
+ /* The timestamp marks observation of the first header byte, rather than
+  * successful authentication much later; zero/wrap is represented explicitly. */
+ o=create(&r);uint8_t frame[32]={0};putbe(frame,32,4);memcpy(frame+4,"rply",4);
+ append(&streams[2],(char*)frame,sizeof(frame),0);size_t full=streams[2].used;streams[2].used=0;
+ assert(receive_poll(&o,UINT32_MAX-1000)&&!r.first_data_received);
+ streams[2].used=1;assert(receive_poll(&o,0)&&r.first_data_received&&r.first_data_at==0&&o.data.rx==0);
+ streams[2].used=full;assert(receive_poll(&o,1500)&&r.first_data_at==0&&o.data.rx==1);
+ append(&streams[2],(char*)frame,sizeof(frame),1);
+ assert(receive_poll(&o,2000)&&r.first_data_at==0&&o.data.rx==2);
+}
 static bool fail_random;static uint8_t random_tick;static const char *seed_wire_path;
 static bool test_random(void *opaque,uint8_t *p,size_t n){(void)opaque;if(fail_random)return false;while(n--)*p++=++random_tick;return true;}
 static void session_identity_tests(void){
@@ -335,4 +360,4 @@ int main(int argc,char **argv){seed_wire_path=argc==2?argv[1]:NULL;observer_rece
  o=create(&r);assert(homepod_observer_poll(&o,100000));
  assert(homepod_observer_poll(&o,102000));streams[0].closed=true;
  assert(!homepod_observer_poll(&o,102001)&&r.error==17&&r.transport_error==-55);
- ack_failure_tests();reassembly_tests();resumable_record_tests();session_identity_tests();puts("Timing and authenticated reassembly regressions passed");return 0;}
+ ack_failure_tests();reassembly_tests();resumable_record_tests();aggregate_diagnostic_tests();session_identity_tests();puts("Timing and authenticated reassembly regressions passed");return 0;}

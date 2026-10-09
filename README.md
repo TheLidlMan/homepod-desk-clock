@@ -11,6 +11,18 @@ Weather comes from Open-Meteo; music stays on your local network.
 
 ## Hardware and status
 
+The latest network changes passed local sanitizer/build checks and an 18-minute
+non-playing connection run on the clock, including a weather refresh. Cold-start
+reply failures also occurred and recovered on retry; their cause remains open.
+The diagnostic build then passed two restart checks. Sustained music, artwork
+and transitions on this exact build still need testing while the HomePod is
+playing. Pairing takes about 17 seconds on the ESP8266 and can pause its web API.
+
+Status exposes only aggregate protocol type/error code and first-data delay,
+in addition to transport and memory counters. These help investigate a closed
+connection without logging protocol bodies, identifiers or keys. An absent
+protocol error is zero; malformed diagnostic framing uses UINT32_MAX.
+
 Tested target: **JUZIPi SD PRO, ESP8266/ESP-12F, 4 MB flash, 240×240 ST7789**.
 This is an experimental project, built on
 [Home Assistant MiniDisplay](https://github.com/piotrkochan/homeassistant-minidisplay).

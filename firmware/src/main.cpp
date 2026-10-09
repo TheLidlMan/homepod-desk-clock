@@ -1599,6 +1599,9 @@ void sendApiStatus() {
   response.field("nativeHomePodTransportError", samHomePod.diagnostics().transport_error);
   response.field("nativeHomePodControlStatus", samHomePod.diagnostics().control_status);
   response.field("nativeHomePodMessages", samHomePod.diagnostics().messages);
+  response.field("nativeHomePodProtocolType", samHomePod.diagnostics().last_protobuf_type);
+  response.field("nativeHomePodProtocolError", samHomePod.diagnostics().last_protobuf_error_code);
+  response.field("nativeHomePodFirstDataMs", samHomePod.firstDataDelayMillis());
   response.field("nativeHomePodEventRecords", samHomePod.diagnostics().event_records);
   response.field("nativeHomePodEventReplies", samHomePod.diagnostics().event_replies);
   response.field("nativeHomePodMetadata", samHomePod.diagnostics().metadata_present);

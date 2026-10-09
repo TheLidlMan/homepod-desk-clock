@@ -18,6 +18,7 @@ class SamHomePod {
   bool receiving() const { return homepod_observer_frame_pending(observer_); }
   const observer_receipt &diagnostics() const { return receipt_; }
   uint32_t pairingMillis() const { return pairingMillis_; }
+  uint32_t firstDataDelayMillis() const { return receipt_.first_data_received ? receipt_.first_data_at - openedAt_ : 0; }
   uint8_t phase() const { return transport_.lastPhase; }
   uint32_t recordSpools() const {return transport_.recordSpools;}
   uint32_t recordSpoolMaxMillis() const {return transport_.recordSpoolMaxMillis;}
@@ -63,6 +64,7 @@ class SamHomePod {
         publishIdle(setValue, selectPage);
         return;
       }
+      openedAt_ = millis();
       lastUpdates_ = UINT32_MAX;
     }
     transport_.beginBudget(800);
@@ -163,7 +165,7 @@ class SamHomePod {
   // Keep the web panel/recovery available before the first pairing attempt.
   uint32_t retryAt_ = 10000, lastPublish_ = 0, lastUpdates_ = UINT32_MAX;
   uint32_t positionAt_ = 0, minimumHeap_ = 0;
-  uint32_t pairingMillis_ = 0;
+  uint32_t pairingMillis_ = 0, openedAt_ = 0;
   double position_ = 0, lastElapsed_ = 0;
   char positionTitle_[129]{};
   bool showingMusic_ = false, wasPlaying_ = false, hasPosition_ = false;
