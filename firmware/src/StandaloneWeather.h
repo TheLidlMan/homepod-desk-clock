@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include <cmath>
 #include <time.h>
+#include "SamClockPolicy.h"
 
 // Bounded, cooperative HTTP reader. Only public village-level weather crosses
 // this unencrypted connection; no credentials or music metadata are sent.
@@ -12,6 +13,18 @@ class StandaloneWeather {
  public:
   time_t lastSuccess() const { return lastSuccess_; }
   bool busy() const { return busy_; }
+  uint8_t error() const { return static_cast<uint8_t>(error_); }
+  uint16_t httpStatus() const { return httpStatus_; }
+  uint8_t networkFailures() const { return networkFailures_; }
+  bool networkStalled(uint32_t now) const {
+    return !busy_ && networkFailures_ >= 3 &&
+           now - firstNetworkFailureAt_ >= kClockNetworkStallMs;
+  }
+  void resetNetworkFailures() {
+    finish();
+    networkFailures_ = 0;
+    nextFetch_ = millis();
+  }
 
   template <typename SetValue>
   void update(SetValue setValue) {
@@ -29,8 +42,10 @@ class StandaloneWeather {
       if (static_cast<int32_t>(tick - nextFetch_) < 0 ||
           WiFi.status() != WL_CONNECTED) return;
       nextFetch_ = tick + 60000;
+      receivedResponse_ = false;
+      httpStatus_ = 0;
       client_.setTimeout(1200);
-      if (!client_.connect("api.open-meteo.com", 80)) return;
+      if (!client_.connect("api.open-meteo.com", 80)) { fail(Error::Connect); return; }
       client_.print(F("GET /v1/forecast?latitude=" DESK_WEATHER_LATITUDE "&longitude=" DESK_WEATHER_LONGITUDE "&current=temperature_2m,precipitation&daily=temperature_2m_max,temperature_2m_min&hourly=precipitation_probability,rain,showers&timezone=" DESK_WEATHER_TIMEZONE "&forecast_days=2&forecast_hours=25&timeformat=unixtime HTTP/1.0\r\nHost: api.open-meteo.com\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"));
       header_ = String();
       body_ = String();
@@ -39,21 +54,27 @@ class StandaloneWeather {
       busy_ = true;
       started_ = tick;
     }
-    if (millis() - started_ > 6000) { finish(); return; }
+    if (millis() - started_ > 6000) { fail(Error::Timeout); return; }
     for (uint16_t count = 0; count < 512 && client_.available(); ++count) {
       const char ch = static_cast<char>(client_.read());
+      receivedResponse_ = true;
+      networkFailures_ = 0;
       if (!headersDone_) {
         header_ += ch;
-        if (header_.length() > 1024) { finish(); return; }
+        if (header_.length() > 1024) { fail(Error::Headers); return; }
         if (header_.endsWith("\r\n\r\n")) {
+          const char *status = header_.c_str();
+          if (header_.length() >= 12 && status[9] >= '0' && status[9] <= '9' &&
+              status[10] >= '0' && status[10] <= '9' && status[11] >= '0' && status[11] <= '9')
+            httpStatus_ = (status[9] - '0') * 100 + (status[10] - '0') * 10 + status[11] - '0';
           if (!(header_.startsWith("HTTP/1.1 200 ") ||
                 header_.startsWith("HTTP/1.0 200 ")) ||
-              header_.indexOf("chunked") >= 0) { finish(); return; }
+              header_.indexOf("chunked") >= 0) { fail(Error::Headers); return; }
           headersDone_ = true;
           header_ = String();
         }
       } else {
-        if (body_.length() >= 4096) { finish(); return; }
+        if (body_.length() >= 4096) { fail(Error::BodyLimit); return; }
         body_ += ch;
       }
     }
@@ -61,12 +82,25 @@ class StandaloneWeather {
       if (headersDone_ && parse(now, setValue)) {
         lastSuccess_ = now;
         nextFetch_ = millis() + 900000;
+        error_ = Error::None;
+      } else {
+        error_ = headersDone_ ? Error::Forecast : Error::Headers;
       }
       finish();
     }
   }
 
  private:
+  enum class Error : uint8_t { None, Connect, Timeout, Headers, BodyLimit, Forecast };
+  void fail(Error error) {
+    error_ = error;
+    // An HTTP error or malformed forecast proves the network is alive.
+    if (!receivedResponse_ && (error == Error::Connect || error == Error::Timeout)) {
+      if (!networkFailures_) firstNetworkFailureAt_ = millis();
+      if (networkFailures_ < 255) ++networkFailures_;
+    }
+    finish();
+  }
   void finish() {
     client_.stop(20);
     client_ = WiFiClient();
@@ -143,5 +177,9 @@ class StandaloneWeather {
   String header_, body_;
   uint32_t started_ = 0, nextFetch_ = 0;
   time_t lastSuccess_ = 0;
-  bool busy_ = false, headersDone_ = false;
+  bool busy_ = false, headersDone_ = false, receivedResponse_ = false;
+  uint8_t networkFailures_ = 0;
+  uint16_t httpStatus_ = 0;
+  uint32_t firstNetworkFailureAt_ = 0;
+  Error error_ = Error::None;
 };

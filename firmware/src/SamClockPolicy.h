@@ -26,3 +26,10 @@ inline bool clockMusicAvailable(uint32_t now, uint32_t updated, bool received,
 inline bool clockNativePollAllowed(bool transition, int pendingPage, bool receiving) {
   return !transition && (pendingPage < 0 || receiving);
 }
+
+// Reassociate only when every observed network path has stopped progressing.
+constexpr uint32_t kClockNetworkStallMs = 10UL * 60UL * 1000UL;
+inline bool clockNetworkRecoveryAllowed(uint32_t now, uint32_t lastApiActivity,
+                                       bool homepodConnected) {
+  return !homepodConnected && now - lastApiActivity >= kClockNetworkStallMs;
+}

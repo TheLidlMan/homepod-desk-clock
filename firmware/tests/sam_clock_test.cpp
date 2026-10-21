@@ -76,4 +76,82 @@ int main() {
   data["hourly"]["rain"][3] = 0;
   data["hourly"]["rain"][4] = nullptr;
   assert(run()["rain"] == "Rain forecast unavailable");
+  // A provider error must not be mistaken for a dead Wi-Fi connection.
+  weatherTestResponse = "HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n{}";
+  StandaloneWeather limited;
+  for (unsigned i = 0; i <= 12; ++i) {
+    weatherTestTick = i * 60000;
+    limited.update([](const char *, const char *) {});
+  }
+  assert(limited.httpStatus() == 429 && limited.error() == 3);
+  assert(!limited.networkStalled(weatherTestTick) && limited.networkFailures() == 0);
+
+  weatherTestConnectSucceeds = false;
+  weatherTestTick = 0;
+  StandaloneWeather lost;
+  for (unsigned i = 0; i < 10; ++i) {
+    weatherTestTick = i * 60000;
+    lost.update([](const char *, const char *) {});
+    assert(!lost.networkStalled(weatherTestTick));
+  }
+  weatherTestTick = kClockNetworkStallMs;
+  lost.update([](const char *, const char *) {});
+  assert(lost.networkStalled(weatherTestTick) && lost.error() == 1);
+  assert(clockNetworkRecoveryAllowed(weatherTestTick, 0, false));
+  assert(!clockNetworkRecoveryAllowed(weatherTestTick, 0, true));
+  assert(!clockNetworkRecoveryAllowed(weatherTestTick, weatherTestTick - 1000, false));
+  lost.resetNetworkFailures();
+  assert(!lost.networkStalled(weatherTestTick) && lost.networkFailures() == 0);
+
+  // Retry and idle ages remain valid when the monotonic timer wraps.
+  weatherTestTick = UINT32_MAX - 120000;
+  StandaloneWeather wrapped;
+  wrapped.resetNetworkFailures();
+  wrapped.update([](const char *, const char *) {});
+  for (unsigned i = 1; i <= 10; ++i) {
+    weatherTestTick = UINT32_MAX - 120000 + i * 60000;
+    wrapped.update([](const char *, const char *) {});
+  }
+  assert(wrapped.networkStalled(weatherTestTick));
+  assert(clockNetworkRecoveryAllowed(weatherTestTick, UINT32_MAX - 120000, false));
+  assert(!clockNetworkRecoveryAllowed(100, UINT32_MAX - 100, false));
+
+  weatherTestConnectSucceeds = true;
+  weatherTestKeepOpen = true;
+  weatherTestResponse.clear();
+  weatherTestTick = 0;
+  StandaloneWeather silent;
+  silent.update([](const char *, const char *) {});
+  weatherTestTick = 6001;
+  silent.update([](const char *, const char *) {});
+  assert(silent.error() == 2 && silent.networkFailures() == 1);
+  weatherTestResponse = "H";
+  weatherTestTick = 0;
+  StandaloneWeather partial;
+  partial.update([](const char *, const char *) {});
+  weatherTestTick = 6001;
+  partial.update([](const char *, const char *) {});
+  assert(partial.error() == 2 && partial.networkFailures() == 0);
+  weatherTestKeepOpen = false;
+  weatherTestResponse = "HTTP/1.0 200 OK\r\n\r\n";
+  data["hourly"]["rain"][4] = 0;
+  std::string restored;
+  serializeJson(data, restored);
+  weatherTestResponse += restored;
+  lost.resetNetworkFailures();
+  for (int i = 0; i < 20 && !lost.lastSuccess(); ++i) {
+    lost.update([](const char *, const char *) {});
+    ++weatherTestTick;
+  }
+  assert(lost.lastSuccess() && lost.error() == 0 && !lost.networkStalled(weatherTestTick));
+  const uint32_t fetchedAt = weatherTestTick - 1;
+  const unsigned calls = weatherTestConnectCalls;
+  weatherTestTick = fetchedAt + 899999;
+  lost.update([](const char *, const char *) {});
+  assert(weatherTestConnectCalls == calls);
+  weatherTestTick = fetchedAt + 900000;
+  lost.update([](const char *, const char *) {});
+  assert(weatherTestConnectCalls == calls + 1);
+
+
 }

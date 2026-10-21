@@ -10,6 +10,8 @@ constexpr int WL_CONNECTED = 3;
 struct TestWifi { int status() { return WL_CONNECTED; } };
 inline TestWifi WiFi;
 inline std::string weatherTestResponse;
+inline unsigned weatherTestConnectCalls = 0;
+inline bool weatherTestConnectSucceeds = true, weatherTestKeepOpen = false;
 
 class String {
  public:
@@ -35,12 +37,13 @@ class String {
 class WiFiClient {
  public:
   void setTimeout(uint32_t) {}
-  bool connect(const char *, uint16_t) { offset_ = 0; return true; }
+  bool connect(const char *, uint16_t) { ++weatherTestConnectCalls; offset_ = 0; open_ = weatherTestConnectSucceeds; return open_; }
   void print(const char *) {}
-  int available() const { return weatherTestResponse.size() - offset_; }
+  int available() const { return open_ ? weatherTestResponse.size() - offset_ : 0; }
   char read() { return weatherTestResponse[offset_++]; }
-  bool connected() const { return available() != 0; }
-  void stop(unsigned = 0) { offset_ = weatherTestResponse.size(); }
+  bool connected() const { return open_ && (weatherTestKeepOpen || available() != 0); }
+  void stop(unsigned = 0) { offset_ = weatherTestResponse.size(); open_ = false; }
  private:
   size_t offset_ = 0;
+  bool open_ = false;
 };

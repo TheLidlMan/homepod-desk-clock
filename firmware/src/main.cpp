@@ -209,6 +209,7 @@ DashboardPageLoader pageDefinition;
 
 DashboardValues dashboardValues;
 StandaloneWeather standaloneWeather;
+uint32_t lastApiActivityAt = 0, clockNetworkRecoveries = 0;
 SamHomePod samHomePod;
 CardValueResolver cardValues(dashboardValues);
 uint32_t pendingChangedValues = 0;
@@ -588,7 +589,11 @@ bool apiAccessAllowed(bool requirePassword) {
   return false;
 }
 
-bool apiAuthenticated() { return apiAccessAllowed(config.apiAuthEnabled); }
+bool apiAuthenticated() {
+  const bool allowed = apiAccessAllowed(config.apiAuthEnabled);
+  if (allowed) lastApiActivityAt = millis();
+  return allowed;
+}
 
 ImageAssetApi imageAssetApi(server, filesystemReady, apiAuthenticated);
 
@@ -666,8 +671,16 @@ void updateStandaloneClock() {
     snprintf(date, sizeof(date), "%s, %d %s", days[local.tm_wday], local.tm_mday, months[local.tm_mon]);
     setClockValue("date", date);
   }
-  if (!pageTransitionActive && pendingPageIndex < 0 && !samHomePod.receiving())
+  if (!pageTransitionActive && pendingPageIndex < 0 && !samHomePod.receiving()) {
     standaloneWeather.update(setClockValue);
+    if (standaloneWeather.networkStalled(millis()) &&
+        clockNetworkRecoveryAllowed(millis(), lastApiActivityAt, samHomePod.connected())) {
+      standaloneWeather.resetNetworkFailures();
+      ++clockNetworkRecoveries;
+      WiFi.reconnect();
+      return;
+    }
+  }
   if (clockNativePollAllowed(pageTransitionActive, pendingPageIndex, samHomePod.receiving())) {
     // Compiled scenes own their strings; release the disposable JSON tree
     // after all render views have ended, before large HomePod allocations.
@@ -1583,6 +1596,10 @@ void sendApiStatus() {
   response.field("nightMode", clockNightMode);
   response.field("nightSchedule", "Configured in ClockConfig.h");
   response.field("nativeWeather", true);
+  response.field("weatherError", standaloneWeather.error());
+  response.field("weatherHttpStatus", standaloneWeather.httpStatus());
+  response.field("weatherNetworkFailures", standaloneWeather.networkFailures());
+  response.field("clockNetworkRecoveries", clockNetworkRecoveries);
   response.field("weatherLastSuccess", static_cast<uint32_t>(standaloneWeather.lastSuccess()));
   response.field("nativeHomePod", true);
   response.field("nativeHomePodArtwork", samHomePod.artworkAvailable());

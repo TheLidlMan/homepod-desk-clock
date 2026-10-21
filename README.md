@@ -11,6 +11,20 @@ Weather comes from Open-Meteo; music stays on your local network.
 
 ## Hardware and status
 
+Weather recovery: after at least three connection/no-response failures spanning
+10 minutes, the clock reassociates with its saved Wi-Fi if there is also no
+HomePod connection or recent authenticated API traffic. HTTP errors and malformed
+forecasts use ordinary retries; a provider outage must not interrupt a working
+LAN or music connection. Status reports `weatherError` (0 success, 1 connect/DNS,
+2 timeout, 3 HTTP/header, 4 body limit, 5 invalid forecast), `weatherHttpStatus`,
+`weatherNetworkFailures` and `clockNetworkRecoveries` (attempted reassociations).
+The original stranded connection recovered after a physical reset; its precise
+SDK/router trigger remains unknown.
+An accelerated hardware fault-injection test recovered weather and the native
+HomePod connection through one reassociation without rebooting. Native tests
+cover the normal ten-minute threshold and timer wrap; multi-day reliability
+remains unverified.
+
 The latest network changes passed local sanitizer/build checks and an 18-minute
 non-playing connection run on the clock, including a weather refresh. Cold-start
 reply failures also occurred and recovered on retry; their cause remains open.
