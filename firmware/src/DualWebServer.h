@@ -140,9 +140,23 @@ class DualWebServer {
       http_.setContentLength(contentLength);
   }
 
-  Print &client() {
-    return secureRequest_ ? static_cast<Print &>(https_->client())
-                          : static_cast<Print &>(http_.client());
+  void sendContent(const char *content, size_t length) {
+    if (secureRequest_)
+      https_->sendContent(content, length);
+    else
+      http_.sendContent(content, length);
+  }
+
+  void sendContent(const String &content) {
+    if (secureRequest_)
+      https_->sendContent(content);
+    else
+      http_.sendContent(content);
+  }
+
+  Client &client() {
+    return secureRequest_ ? static_cast<Client &>(https_->client())
+                          : static_cast<Client &>(http_.client());
   }
 
   void send_P(int code, PGM_P contentType, PGM_P content,
