@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ScenePageRenderer.h"
+#include "SpriteBand.h"
 
 #if defined(ESP8266)
 // Eight rows halve visible top-to-bottom tearing for animated images while
@@ -18,9 +19,12 @@ struct SceneUpdatePainter {
   bool begin() {
     band.setColorDepth(16);
     band.setTextWrap(false, false);
-    return band.createSprite(240, kSceneUpdateBandHeight) != nullptr;
+    height = createSpriteBand(band, 240, kSceneUpdateBandHeight,
+        sceneSpriteBudget(ESP.getFreeHeap(), ESP.getMaxFreeBlockSize()));
+    return height != 0;
   }
 
+  uint8_t height = 0;
   TFT_eSprite band;
   FontRenderState font;
   ImageAssetRenderCache images;

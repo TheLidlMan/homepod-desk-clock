@@ -70,6 +70,7 @@ schema-check:
 	python3 tests/test_schema_compactor.py
 
 test-native:
+	python3 firmware/tests/test_wifi_disconnect.py
 	python3 firmware/tests/test_jpeg_workspace.py
 	@test -d firmware/.pio/libdeps/sdpro/ArduinoJson/src || { echo "run make build first to install ArduinoJson"; exit 1; }
 	@mkdir -p .cache/tests
@@ -195,6 +196,9 @@ test-native:
 	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
 		-I firmware/src firmware/tests/scene_tile_buffer_test.cpp -o .cache/tests/scene-tile-buffer
 	.cache/tests/scene-tile-buffer
+	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
+		-I firmware/src firmware/tests/sprite_band_test.cpp -o .cache/tests/sprite-band
+	.cache/tests/sprite-band
 	$(CXX) -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined -g \
 		-I firmware/src firmware/tests/scene_layout_test.cpp -o .cache/tests/scene-layout
 	.cache/tests/scene-layout

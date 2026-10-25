@@ -132,6 +132,8 @@ WebServer server(80);
 
 struct HttpChunkSink {
   void operator()(const char *bytes, size_t length) const {
+    // A timed-out reader must not make every remaining chunk wait again.
+    if (!server.client().connected()) return;
     server.sendContent(bytes, length);
     yield();
   }
@@ -149,6 +151,8 @@ AnimatedImagePlayback animatedImages;
 bool animatedFrameRenderActive = false;
 std::unique_ptr<ScenePage> activeScene;
 bool activeSceneReady = false;
+uint8_t lastRenderBandHeight = 0;
+uint32_t renderBandFallbacks = 0, renderAllocationFailures = 0;
 uint8_t activeScenePage = 0xff;
 uint32_t bootId = 0;
 uint32_t connectStartedAt = 0;
@@ -848,9 +852,17 @@ bool renderPendingScene(const ScenePage &scene) {
 #if defined(ESP8266)
   if (display.fontLoaded) display.unloadFont();
   displayFontState = FontRenderState{};
+  // Compiled scenes own all text/assets; no JSON views survive into painting.
+  pageDefinition.clear();
   std::unique_ptr<SceneUpdatePainter> painter(
       new (std::nothrow) SceneUpdatePainter(display));
-  if (!painter || !painter->begin()) return false;
+  if (!painter || !painter->begin()) {
+    ++renderAllocationFailures;
+    return false;
+  }
+  lastRenderBandHeight = painter->height;
+  if (painter->height < kSceneUpdateBandHeight) ++renderBandFallbacks;
+  sceneScheduler.setTileHeight(painter->height);
   MINI_DISPLAY_PROFILE_MEMORY(RuntimeProfilePoint::SceneRender);
   auto &band = painter->band;
   auto &font = painter->font;
@@ -860,7 +872,7 @@ bool renderPendingScene(const ScenePage &scene) {
     SceneRect tile;
     while (sceneScheduler.nextTile(tile)) {
       if (tile.width <= 0 || tile.width > 240 ||
-          tile.height <= 0 || tile.height > kSceneUpdateBandHeight) {
+          tile.height <= 0 || tile.height > painter->height) {
         band.deleteSprite();
         return false;
       }
@@ -876,7 +888,7 @@ bool renderPendingScene(const ScenePage &scene) {
         MINI_DISPLAY_PROFILE_SCOPE(RuntimeProfilePoint::SpiTransfer);
         uint16_t *pixels = static_cast<uint16_t *>(band.getPointer());
         if (!packTransitionPixels(
-                pixels, 240 * kSceneUpdateBandHeight, 240, tile.width,
+                pixels, 240 * painter->height, 240, tile.width,
                 tile.height)) {
           band.deleteSprite();
           return false;
@@ -1081,13 +1093,13 @@ bool renderDashboardPage(const uint32_t *changedValues, bool clear) {
   animatedImages.bind(*activeScene, millis(), preserveAnimations);
   if (partial) invalidateChangedSceneSources(*activeScene, *changedValues);
   }
+  // Allocation failure does not invalidate the successfully compiled scene.
+  activeSceneReady = true;
+  activeScenePage = activePageIndex;
   if (!renderPendingScene(*activeScene)) {
-    activeSceneReady = false;
     lastRenderFailure = RenderFailure::SceneAllocation;
     return false;
   }
-  activeSceneReady = true;
-  activeScenePage = activePageIndex;
   return true;
 }
 
@@ -1227,6 +1239,7 @@ void showPageWithTransition(uint8_t nextPageIndex) {
     showWithoutTransition();
     return;
   }
+  pageDefinition.clear();
   std::unique_ptr<PageTransitionRenderer> renderer(
       new (std::nothrow) PageTransitionRenderer(
           display, displayOn, displayBrightness, applyBacklight,
@@ -1745,6 +1758,9 @@ void sendApiStatus() {
   response.field("renderError", renderFailureName());
   response.field("sceneCompileError",
                  sceneCompileFailureName(lastSceneCompileFailure));
+  response.field("renderBandRows", lastRenderBandHeight);
+  response.field("renderBandFallbacks", renderBandFallbacks);
+  response.field("renderAllocationFailures", renderAllocationFailures);
   response.field("sceneBytes", activeScene ? activeScene->allocatedBytes() : 0);
   response.field("pageDefinitionBytes", pageDefinition.allocatedBytes());
   response.field("pageDefinitionParses", pageDefinition.parseCount());
@@ -2365,6 +2381,7 @@ void receiveApiFactoryReset() {
 
 void startAccessPoint() {
   if (accessPointRunning) return;
+  samHomePod.stop();
   if (configValid() && config.resetApiAuthOnRecovery) {
     memset(config.apiPassword, 0, sizeof(config.apiPassword));
     config.apiAuthEnabled = 0;
@@ -3184,10 +3201,17 @@ void loop() {
       wifiAttemptCount = 0;
       startupSequenceActive = true;
       startupConnectedAt = 0;
-    } else if (millis() - startupScreens.setupUpdatedAt() >= 1000 &&
-               WiFi.softAPgetStationNum() !=
-                   startupScreens.setupStationCount()) {
-      showSetupScreen();
+    } else {
+      if (clockRecoveryWifiRetryDue(millis(), connectStartedAt, wifiConfigured())) {
+        connectStartedAt = millis();
+        lastDisconnectStatus = WiFi.status();
+        ++reconnectCount;
+        // Reapply the saved profile; do not rely on stale SDK station state.
+        WiFi.begin(config.ssid, config.wifiPassword);
+      }
+      if (millis() - startupScreens.setupUpdatedAt() >= 1000 &&
+          WiFi.softAPgetStationNum() != startupScreens.setupStationCount())
+        showSetupScreen();
     }
     recordFreeHeap();
     delay(2);
@@ -3196,6 +3220,7 @@ void loop() {
 
   if (wifiConfigured() && WiFi.status() != WL_CONNECTED) {
     if (wifiWasConnected) {
+      samHomePod.stop();
       wifiWasConnected = false;
       lastDisconnectStatus = WiFi.status();
       ++reconnectCount;

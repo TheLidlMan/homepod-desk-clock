@@ -247,6 +247,8 @@ class SceneTilePlan {
   explicit SceneTilePlan(uint8_t tileHeight = 8)
       : tileHeight_(tileHeight == 0 ? 1 : tileHeight) {}
 
+  void setTileHeight(uint8_t height) { tileHeight_ = height ? height : 1; }
+
   void begin(const DirtyRegionSet<MaximumRegions> &dirty) {
     count_ = dirty.size();
     for (uint8_t index = 0; index < count_; ++index) {

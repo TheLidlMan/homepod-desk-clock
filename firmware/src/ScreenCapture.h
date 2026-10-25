@@ -24,7 +24,8 @@ class ScreenCapture {
 
  private:
 #if defined(ESP8266)
-  static constexpr uint8_t kBandHeight = 8;
+  static constexpr uint8_t kMaximumBandHeight = 8;
+  uint8_t bandHeight_ = 0;
   TFT_eSprite frame_;
   FontRenderState fontState_;
   ImageAssetRenderCache imageCache_;

@@ -31,7 +31,7 @@ class SamHomePod {
   uint32_t artworkConversionMillis() const { return artwork_.conversionMillis(); }
   uint16_t artworkEdge() const { return artwork_.edge(); }
   bool artworkChanged() { return artwork_.consumeChanged(); }
-  void stop() { disconnect(); }
+  void stop() { disconnect(); showingMusic_ = false; }
 
   template <typename SetValue, typename SelectPage>
   void update(SetValue setValue, SelectPage selectPage, bool mayConnect) {

@@ -154,4 +154,10 @@ int main() {
   assert(weatherTestConnectCalls == calls + 1);
 
 
+  assert(!clockRecoveryWifiRetryDue(60000, 0, false));
+  assert(!clockRecoveryWifiRetryDue(59999, 0, true));
+  assert(clockRecoveryWifiRetryDue(60000, 0, true));
+  assert(!clockRecoveryWifiRetryDue(100, UINT32_MAX - 100, true));
+  assert(clockRecoveryWifiRetryDue(99, UINT32_MAX - 59900, true));
+
 }

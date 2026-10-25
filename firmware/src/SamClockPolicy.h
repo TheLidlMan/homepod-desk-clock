@@ -33,3 +33,10 @@ inline bool clockNetworkRecoveryAllowed(uint32_t now, uint32_t lastApiActivity,
                                        bool homepodConnected) {
   return !homepodConnected && now - lastApiActivity >= kClockNetworkStallMs;
 }
+
+// Keep the provisioning AP available while retrying an already saved network.
+constexpr uint32_t kClockRecoveryWifiRetryMs = 60000;
+inline bool clockRecoveryWifiRetryDue(uint32_t now, uint32_t lastAttempt,
+                                      bool configured) {
+  return configured && now - lastAttempt >= kClockRecoveryWifiRetryMs;
+}

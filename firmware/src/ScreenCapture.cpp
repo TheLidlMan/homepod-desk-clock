@@ -1,4 +1,5 @@
 #include "ScreenCapture.h"
+#include "SpriteBand.h"
 
 #include "ScenePageRenderer.h"
 #include "NotificationPainter.h"
@@ -65,7 +66,9 @@ bool ScreenCapture::begin() {
 #if defined(ESP8266)
   frame_.setColorDepth(16);
   frame_.setTextWrap(false, false);
-  ready_ = frame_.createSprite(kWidth, kBandHeight) != nullptr;
+  bandHeight_ = createSpriteBand(frame_, kWidth, kMaximumBandHeight,
+      sceneSpriteBudget(ESP.getFreeHeap(), ESP.getMaxFreeBlockSize()));
+  ready_ = bandHeight_ != 0;
   return ready_;
 #else
   return false;
@@ -91,13 +94,13 @@ bool ScreenCapture::streamBmp(const ScenePage &page, int8_t offsetX,
   writeLe32(header + 42, 2835);
   if (!writeAll(output, header, sizeof(header))) return false;
 
-  for (int16_t bandY = kHeight - kBandHeight; bandY >= 0;
-       bandY -= kBandHeight) {
+  for (int16_t bandY = kHeight - bandHeight_; bandY >= 0;
+       bandY -= bandHeight_) {
     frame_.fillSprite(page.background);
     paintScenePage(frame_, page, offsetX, offsetY - bandY, 0, 0, kWidth,
-                   kBandHeight, fontState_, &imageCache_);
+                   bandHeight_, fontState_, &imageCache_);
     if (notifications) paintNotification(frame_, *notifications, 0, -bandY);
-    for (int8_t localY = kBandHeight - 1; localY >= 0; --localY) {
+    for (int8_t localY = bandHeight_ - 1; localY >= 0; --localY) {
       size_t outputOffset = 0;
       for (uint16_t x = 0; x < kWidth; ++x) {
         const uint16_t color = frame_.readPixel(x, localY);

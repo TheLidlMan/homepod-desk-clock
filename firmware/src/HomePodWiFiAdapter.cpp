@@ -134,7 +134,7 @@ static bool drain_record(void *opaque,hap_io *io,uint8_t *scratch,size_t capacit
     if(ok){data=static_cast<uint8_t *>(malloc(bytes));ok=data!=nullptr;}
     if(ok){
         File file=LittleFS.open(kRecordSpool,"r");
-        ok=file && file.size()==bytes && file.read(data,bytes)==bytes;
+        ok=file && file.size()==bytes && static_cast<size_t>(file.read(data,bytes))==bytes;
         file.close();owner->sampleHeap();
     }
     if(!LittleFS.remove(kRecordSpool) && LittleFS.exists(kRecordSpool))ok=false;

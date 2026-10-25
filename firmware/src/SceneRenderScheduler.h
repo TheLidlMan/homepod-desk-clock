@@ -24,6 +24,8 @@ class SceneRenderScheduler {
     invalidateSceneSource(scene, sourceIndex, pending_, expansion);
   }
 
+  void setTileHeight(uint8_t height) { tiles_.setTileHeight(height); }
+
   bool beginFrame() {
     if (rendering_ || pending_.size() == 0) return false;
     tiles_.begin(pending_);

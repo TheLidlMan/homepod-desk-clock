@@ -11,6 +11,25 @@ Weather comes from Open-Meteo; music stays on your local network.
 
 ## Hardware and status
 
+Renderer and recovery repair (desk.10): ordinary redraws and screenshot capture
+fall back from eight rows to four, two or one when contiguous heap is limited.
+The renderer releases the temporary page JSON before allocating its drawing
+buffer and retains a compiled scene if painting must be retried. Local status
+adds `renderBandRows`, `renderBandFallbacks` and `renderAllocationFailures`.
+Streamed diagnostics skip remaining chunks when their HTTP reader disconnects.
+The pinned ESP8266 core also takes its station interface down before SDK
+disconnect and on disconnect events, preventing pending multicast timers from
+transmitting through a torn-down driver. This follows the SDK race mitigation in
+[ESPHome #18333](https://github.com/esphome/esphome/pull/18333).
+Recovery setup mode retries a saved Wi-Fi profile every 60 seconds while keeping
+the provisioning AP available. It closes the HomePod session on link loss and
+allows fresh playback metadata to select the music face after reconnection.
+
+On the SD PRO, a restricted-buffer test completed three saved-network recovery
+cycles with the same boot ID, restored HomePod subscriptions and zero renderer
+allocation errors. One HomePod connection attempt failed and recovered on retry.
+This is a short fault-injection test; multi-day reliability remains unverified.
+
 Weather recovery: after at least three connection/no-response failures spanning
 10 minutes, the clock reassociates with its saved Wi-Fi if there is also no
 HomePod connection or recent authenticated API traffic. HTTP errors and malformed
