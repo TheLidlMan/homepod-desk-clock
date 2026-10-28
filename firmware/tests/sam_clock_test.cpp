@@ -6,6 +6,11 @@
 #include "StandaloneWeather.h"
 
 int main() {
+  assert(!clockWifiWarningDue(59999, 0));
+  assert(clockWifiWarningDue(60000, 0));
+  assert(!clockWifiWarningDue(61000, 61000)); // new outage, new grace period
+  assert(!clockWifiWarningDue(100, UINT32_MAX - 100));
+  assert(clockWifiWarningDue(99, UINT32_MAX - 59900));
   assert(clockNativePollAllowed(false, -1, false));
   assert(!clockNativePollAllowed(false, 1, false));
   assert(clockNativePollAllowed(false, 1, true));

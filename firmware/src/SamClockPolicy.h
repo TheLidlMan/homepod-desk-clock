@@ -40,3 +40,8 @@ inline bool clockRecoveryWifiRetryDue(uint32_t now, uint32_t lastAttempt,
                                       bool configured) {
   return configured && now - lastAttempt >= kClockRecoveryWifiRetryMs;
 }
+
+// An outage gets one continuous grace period, independent of retry attempts.
+inline bool clockWifiWarningDue(uint32_t now, uint32_t outageStartedAt) {
+  return now - outageStartedAt >= 60000;
+}

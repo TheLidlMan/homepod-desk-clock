@@ -29,6 +29,46 @@ DECLARATIONS = '''void miniDisplayStationNetifDown();
 bool miniDisplayStationDisconnect();
 
 '''
+MDNS_MEMORY_GUARD = '''// Mini Display: mDNS is optional while network buffers own the heap.
+// TXT records need many small allocations; budget their expansion conservatively.
+static bool miniDisplayMdnsMemoryAvailable(uint32_t payloadBytes = 0) {
+    return ESP.getFreeHeap() >= 8192UL + 32UL * payloadBytes &&
+           ESP.getMaxFreeBlockSize() >= 4096;
+}
+'''
+
+
+def patch_mdns(control: str, transfer: str) -> tuple[str, str]:
+    result = []
+    for source, marker, body, guarded in [
+        (control, '    bool MDNSResponder::_process(bool p_bUserContext)',
+         '        bool bResult = true;\n',
+         '''        bool bResult = true;
+        if (!miniDisplayMdnsMemoryAvailable()) {
+            if (!p_bUserContext && m_pUDPContext && m_pUDPContext->next())
+                m_pUDPContext->flush();
+            return false;
+        }
+'''),
+        (transfer, '    bool MDNSResponder::_readRRAnswer(',
+         '        {\n            /*  DEBUG_EX_INFO(',
+         '''        {
+            if (!miniDisplayMdnsMemoryAvailable(u16RDLength)) return false;
+            /*  DEBUG_EX_INFO('''),
+    ]:
+        if MDNS_MEMORY_GUARD not in source:
+            if source.count(marker) != 1:
+                raise RuntimeError('ESP8266 mDNS source changed; review memory guard')
+            offset = source.index(marker)
+            before, after = source[:offset], source[offset:]
+            if body not in after:
+                raise RuntimeError('ESP8266 mDNS parser changed; review memory guard')
+            after = after.replace(body, guarded, 1)
+            source = before + MDNS_MEMORY_GUARD + '\n' + after
+        if source.count(MDNS_MEMORY_GUARD) != 1 or source.count(guarded) != 1:
+            raise RuntimeError('Incomplete ESP8266 mDNS memory guard')
+        result.append(source)
+    return tuple(result)
 
 
 def patch_sources(station: str, generic: str) -> tuple[str, str]:
@@ -72,3 +112,10 @@ if 'Import' in globals():
             if old != new:
                 path.write_text(new)
                 print('ESP8266 Wi-Fi: guard station teardown in ' + path.name)
+        directory = framework / 'libraries/ESP8266mDNS/src'
+        paths = [directory / 'LEAmDNS_Control.cpp', directory / 'LEAmDNS_Transfer.cpp']
+        before = [p.read_text() for p in paths]
+        for path, old, new in zip(paths, before, patch_mdns(*before)):
+            if old != new:
+                path.write_text(new)
+                print('ESP8266 mDNS: reserve network memory in ' + path.name)

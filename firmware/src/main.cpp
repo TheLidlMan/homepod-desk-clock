@@ -156,6 +156,13 @@ uint32_t renderBandFallbacks = 0, renderAllocationFailures = 0;
 uint8_t activeScenePage = 0xff;
 uint32_t bootId = 0;
 uint32_t connectStartedAt = 0;
+uint32_t wifiOutageStartedAt = 0;
+bool wifiOutageActive = false;
+#if defined(ESP8266)
+WiFiEventHandler wifiDisconnectHandler;
+uint8_t lastWifiEventReason = 0;
+uint32_t wifiDisconnectEvents = 0, lastWifiEventAt = 0;
+#endif
 uint8_t wifiAttemptCount = 0;
 bool wifiWasConnected = false;
 bool accessPointRunning = false;
@@ -1690,6 +1697,14 @@ void sendApiStatus() {
   response.field("mac", WiFi.macAddress());
   response.field("reconnectCount", reconnectCount);
   response.field("lastDisconnectReason", disconnectReason());
+#if defined(ESP8266)
+  response.field("lastWifiEventReason", lastWifiEventReason);
+  response.field("wifiDisconnectEvents", wifiDisconnectEvents);
+  response.field("lastWifiEventAtMs", lastWifiEventAt);
+#endif
+  response.field("wifiOutageMs", wifiOutageActive ? millis() - wifiOutageStartedAt : 0);
+  response.field("wifiWarningVisible", wifiOutageActive &&
+                 (accessPointRunning || startupScreens.connectionVisible()));
   response.field("wifiRetryLimit", config.wifiRetryLimit
                                        ? config.wifiRetryLimit
                                        : kDefaultWifiRetryLimit);
@@ -3099,6 +3114,16 @@ void connectToWiFi() {
   }
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+#if defined(ESP8266)
+  // The loop releases network buffers before reconnect scanning can allocate.
+  WiFi.setAutoReconnect(false);
+  wifiDisconnectHandler = WiFi.onStationModeDisconnected(
+      [](const WiFiEventStationModeDisconnected &event) {
+        lastWifiEventReason = event.reason;
+        lastWifiEventAt = millis();
+        ++wifiDisconnectEvents;
+      });
+#endif
   configureIpAddress();
 #if defined(ESP8266)
   WiFi.hostname(configuredHostname().c_str());
@@ -3107,6 +3132,8 @@ void connectToWiFi() {
 #endif
   WiFi.begin(config.ssid, config.wifiPassword);
   connectStartedAt = millis();
+  wifiOutageStartedAt = connectStartedAt;
+  wifiOutageActive = true;
   wifiAttemptCount = 1;
   wifiWasConnected = false;
 }
@@ -3116,6 +3143,7 @@ void showStartupScreen() {
 }
 
 void showWifiConnectingScreen() {
+  if (!startupSequenceActive && !clockWifiWarningDue(millis(), wifiOutageStartedAt)) return;
   startupScreens.showConnecting(config, wifiAttemptCount, connectStartedAt,
                                 kConnectTimeoutMs);
 }
@@ -3181,6 +3209,11 @@ void setup() {
   connectToWiFi();
   if (accessPointRunning) {
     showSetupScreen();
+  } else if (dashboardPageCount) {
+    // Saved dashboards also recover quietly after a restart.
+    startupSequenceActive = false;
+    showCurrentPage();
+    applyBacklight();
   } else if (WiFi.status() != WL_CONNECTED) {
     showWifiConnectingScreen();
   }
@@ -3198,6 +3231,7 @@ void loop() {
       WiFi.softAPdisconnect(true);
       accessPointRunning = false;
       wifiWasConnected = true;
+      wifiOutageActive = false;
       wifiAttemptCount = 0;
       startupSequenceActive = true;
       startupConnectedAt = 0;
@@ -3221,11 +3255,16 @@ void loop() {
   if (wifiConfigured() && WiFi.status() != WL_CONNECTED) {
     if (wifiWasConnected) {
       samHomePod.stop();
+      standaloneWeather.resetNetworkFailures();
+      pageDefinition.clear();
+      setClockValue("music_playing", "false");
       wifiWasConnected = false;
       lastDisconnectStatus = WiFi.status();
       ++reconnectCount;
       wifiAttemptCount = 1;
       connectStartedAt = millis();
+      wifiOutageStartedAt = connectStartedAt;
+      wifiOutageActive = true;
       WiFi.reconnect();
       showWifiConnectingScreen();
     } else if (millis() - connectStartedAt >= kConnectTimeoutMs) {
@@ -3233,26 +3272,30 @@ void loop() {
                                      ? config.wifiRetryLimit
                                      : kDefaultWifiRetryLimit;
       if (wifiAttemptCount >= retryLimit) {
-        startAccessPoint();
+        if (startupSequenceActive || clockWifiWarningDue(millis(), wifiOutageStartedAt))
+          startAccessPoint();
       } else {
         lastDisconnectStatus = WiFi.status();
         ++reconnectCount;
         ++wifiAttemptCount;
         connectStartedAt = millis();
-        WiFi.disconnect();
+        WiFi.disconnect(false, false);
         WiFi.begin(config.ssid, config.wifiPassword);
         showWifiConnectingScreen();
       }
     } else if (millis() - startupScreens.setupUpdatedAt() >= 1000) {
       showWifiConnectingScreen();
     }
-    recordFreeHeap();
-    delay(2);
-    return;
+    if (startupSequenceActive || clockWifiWarningDue(millis(), wifiOutageStartedAt)) {
+      recordFreeHeap();
+      delay(2);
+      return;
+    }
   }
 
-  if (wifiConfigured()) {
+  if (wifiConfigured() && WiFi.status() == WL_CONNECTED) {
     wifiWasConnected = true;
+    wifiOutageActive = false;
     wifiAttemptCount = 0;
   }
   if (startupSequenceActive) {
@@ -3268,7 +3311,7 @@ void loop() {
       }
       startMdns();
 #if defined(ESP8266)
-      if (mdnsReady) MDNS.update();
+      if (mdnsReady && WiFi.status() == WL_CONNECTED) MDNS.update();
 #endif
       recordFreeHeap();
       delay(2);
@@ -3313,7 +3356,7 @@ void loop() {
   }
   startMdns();
 #if defined(ESP8266)
-  if (mdnsReady) MDNS.update();
+  if (mdnsReady && WiFi.status() == WL_CONNECTED) MDNS.update();
 #endif
   if (dashboardPageCount && dashboardPages[activePageIndex].hasClock) {
     const time_t now = time(nullptr);

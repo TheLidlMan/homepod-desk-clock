@@ -23,6 +23,19 @@ generic = '''void ESP8266WiFiGenericClass::_eventCallback(void* arg) {
 '''
 result = patch.patch_sources(station, generic)
 assert patch.patch_sources(*result) == result
+mdns = ('    bool MDNSResponder::_process(bool p_bUserContext) {\n        bool bResult = true;\n}',
+        '    bool MDNSResponder::_readRRAnswer(Answer &answer) {\n'
+        '        if (header)\n        {\n            /*  DEBUG_EX_INFO( details */\n        }\n}')
+guarded_mdns = patch.patch_mdns(*mdns)
+assert patch.patch_mdns(*guarded_mdns) == guarded_mdns
+for source in (mdns[0].replace('bool bResult = true;', 'changed();'),
+               guarded_mdns[0].replace('if (!miniDisplayMdnsMemoryAvailable())', 'if (false)')):
+    try:
+        patch.patch_mdns(source, mdns[1])
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError('Changed mDNS parser must fail closed')
 for broken in [(station.replace('if(wifi_station_disconnect())', 'changed()'), generic),
                (station, generic.replace('STAMODE_DISCONNECTED', 'CHANGED')),
                (station + '\nwifi_station_disconnect();', generic)]:
@@ -37,6 +50,7 @@ with tempfile.TemporaryDirectory() as temporary:
     source = Path(temporary) / 'guard.cpp'
     binary = Path(temporary) / 'guard'
     source.write_text('''#include <cassert>
+#include <cstdint>
 #define LWIP_VERSION_MAJOR 2
 #define STATION_IF 0
 struct netif { bool up; } station{true};
@@ -48,10 +62,23 @@ bool wifi_station_disconnect() {
     ++disconnects;
     return sdkResult;
 }
-''' + helper + '''
+struct {
+    unsigned free = 20000, block = 8192;
+    unsigned getFreeHeap() { return free; }
+    unsigned getMaxFreeBlockSize() { return block; }
+} ESP;
+''' + helper + patch.MDNS_MEMORY_GUARD + '''
 extern "C" netif *eagle_lwip_getif(int index) { assert(index == STATION_IF); return current; }
 extern "C" void netif_set_down(netif *interface) { interface->up = false; }
 int main() {
+    assert(miniDisplayMdnsMemoryAvailable());
+    ESP.free = 8191; assert(!miniDisplayMdnsMemoryAvailable());
+    ESP.free = 8192; assert(miniDisplayMdnsMemoryAvailable());
+    ESP.block = 4095; assert(!miniDisplayMdnsMemoryAvailable());
+    ESP.block = 8192; ESP.free = 20000;
+    assert(miniDisplayMdnsMemoryAvailable(300));
+    assert(!miniDisplayMdnsMemoryAvailable(400));
+    assert(!miniDisplayMdnsMemoryAvailable(65535));
     assert(miniDisplayStationDisconnect() && disconnects == 1);
     station.up = true;
     miniDisplayStationNetifDown();

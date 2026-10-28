@@ -11,6 +11,20 @@ Weather comes from Open-Meteo; music stays on your local network.
 
 ## Hardware and status
 
+Wi-Fi recovery update (desk.11): a configured clock keeps its dashboard running
+for the first 60 seconds of an outage, including saved-dashboard startup. Retry
+attempts do not restart this grace period; prolonged outages still show recovery
+instructions. ESP8266 automatic reconnect scanning is disabled so the main loop
+can release HomePod, weather and temporary JSON buffers before reconnecting.
+Status now includes the SDK disconnect reason, event count and event timestamp,
+plus the current outage duration and warning visibility. A captured crash pointed
+to an unchecked Wi-Fi scan allocation; controlled recovery is a mitigation, not
+proof that all causes of that driver crash are eliminated.
+The pinned mDNS responder now drops incoming discovery work under memory
+pressure and budgets answer parsing before allocation. This addresses a second
+captured restart where a discovery reply exhausted memory during HomePod reads.
+Saved Wi-Fi credentials are retained during every reconnect attempt.
+
 Renderer and recovery repair (desk.10): ordinary redraws and screenshot capture
 fall back from eight rows to four, two or one when contiguous heap is limited.
 The renderer releases the temporary page JSON before allocating its drawing
